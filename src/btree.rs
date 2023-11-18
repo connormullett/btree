@@ -7,7 +7,7 @@ use crate::pager::Pager;
 use crate::wal::Wal;
 use std::cmp;
 use std::convert::TryFrom;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// B+Tree properties.
 pub const MAX_BRANCHING_FACTOR: usize = 200;
@@ -149,18 +149,15 @@ impl BTree {
     ) -> Result<(), Error> {
         match &mut node.node_type {
             NodeType::Leaf(page_id, ref mut pairs) => {
-                let mut data_page = DataPage::new(*page_id)?;
-
-                let offset = Offset(data_page.get_end()?);
+                let mut data_page = DataPage::load(PathBuf::from(format!("/tmp/{}", page_id)))?;
+                let offset = data_page.insert(value)?;
                 let kv = KeyValuePair {
                     key,
-                    offset: offset.clone(),
+                    offset: Offset(offset),
                 };
 
                 let idx = pairs.binary_search(&kv).unwrap_or_else(|x| x);
                 pairs.insert(idx, kv);
-                // write value to disk
-                data_page.write_at_offset(offset.0, value.into_bytes())?;
                 self.pager
                     .write_page_at_offset(Page::try_from(&*node)?, &node_offset)
             }
@@ -232,9 +229,8 @@ impl BTree {
                     pairs.binary_search_by_key(&search.to_string(), |pair| pair.key.clone())
                 {
                     let offset = pairs[idx].offset.clone();
-                    let mut data_page = DataPage::new(page_id)?;
-                    let value = data_page.get_value_from_offset(offset.0)?;
-                    let value = std::str::from_utf8(&value).or(Err(Error::UnexpectedError))?;
+                    let data_page = DataPage::load(PathBuf::from(format!("/tmp/{}", page_id)))?;
+                    let value = data_page.get(offset.0)?;
                     return Ok(value.to_string());
                 }
                 Err(Error::KeyNotFound)
@@ -265,11 +261,13 @@ impl BTree {
         node_offset: &Offset,
     ) -> Result<(), Error> {
         match &mut node.node_type {
-            NodeType::Leaf(_, ref mut pairs) => {
+            NodeType::Leaf(page_id, ref mut pairs) => {
                 let key_idx = pairs
                     .binary_search_by_key(&key, |kv| Key(kv.key.clone()))
                     .map_err(|_| Error::KeyNotFound)?;
-                // TODO: Verify that page write overwrites the key which means we can skip an IO access
+                let kv = pairs.get(key_idx).ok_or(Error::UnexpectedError)?;
+                let mut data_page = DataPage::load(PathBuf::from(format!("/tmp/{}", page_id)))?;
+                data_page.delete(kv.offset.0)?;
                 pairs.remove(key_idx);
                 self.pager
                     .write_page_at_offset(Page::try_from(&*node)?, node_offset)?;
@@ -475,7 +473,6 @@ mod tests {
         btree.insert("g".to_string(), "Konnichiwa".to_string())?;
         btree.insert("h".to_string(), "Ni hao".to_string())?;
         btree.insert("i".to_string(), "Ciao".to_string())?;
-        btree.print().unwrap();
 
         let mut v = btree.search("a".to_string())?;
         assert_eq!(v, "a");

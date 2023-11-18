@@ -67,7 +67,6 @@ impl Node {
                 Ok((
                     Key(median_pair.key),
                     Node::new(
-                        // TODO: Verify creating this node moves keys when page is written
                         NodeType::Leaf(new_node_id(), sibling_pairs),
                         false,
                         self.parent_offset.clone(),

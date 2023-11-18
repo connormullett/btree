@@ -1,7 +1,6 @@
 use std::{
-    fs::{File, OpenOptions},
-    io::{Seek, SeekFrom, Write},
-    os::unix::fs::FileExt,
+    fs::OpenOptions,
+    io::{self, Read, Write},
     path::PathBuf,
 };
 
@@ -10,49 +9,66 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use crate::error::Error;
 
 pub struct DataPage {
-    file: File,
+    values: Vec<String>,
+    path: PathBuf,
 }
 
 impl DataPage {
-    pub fn new(page_id: usize) -> Result<Self, Error> {
-        // TODO: use env var or something to set file location
-        let path = PathBuf::from(format!("/tmp/{}", page_id.to_string()));
-        let fd = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .append(true)
-            .open(&path)?;
-
-        let mut data_page = Self { file: fd };
-
-        data_page.write_at_offset(0, page_id.to_be_bytes().to_vec())?;
-        data_page.file.flush()?;
-
-        Ok(data_page)
+    pub fn get(&self, idx: usize) -> Result<String, Error> {
+        let value = self.values.get(idx).ok_or(Error::KeyNotFound)?;
+        Ok(value.clone())
     }
 
-    pub fn get_end(&mut self) -> Result<usize, Error> {
-        let offset = self.file.seek(SeekFrom::End(0))?;
-        Ok(offset as usize)
+    pub fn insert(&mut self, value: String) -> Result<usize, Error> {
+        let idx = self.values.len();
+        self.values.push(value);
+        self.flush()?;
+        Ok(idx)
     }
 
-    pub fn write_at_offset(&mut self, offset: usize, value: Vec<u8>) -> Result<(), Error> {
-        let len_value = value.len();
-        self.file.seek(SeekFrom::Start(offset as u64))?;
-        self.file.write_u64::<BigEndian>(len_value as u64)?;
-        self.file.write_all(&value)?;
+    pub fn delete(&mut self, idx: usize) -> Result<(), Error> {
+        self.values.remove(idx);
+        self.flush()?;
         Ok(())
     }
 
-    pub fn get_value_from_offset(&mut self, offset: usize) -> Result<Vec<u8>, Error> {
-        // seek to offset
-        self.file.seek(SeekFrom::Start(offset as u64))?;
-        // get length of the actual value (sizeof usize)
-        let len_value = self.file.read_u64::<BigEndian>().unwrap();
-        // read actual value
-        let mut value = Vec::with_capacity(len_value as usize);
-        self.file.read_exact_at(&mut value, len_value)?;
-        Ok(value)
+    pub fn flush(&self) -> Result<(), Error> {
+        let mut fd = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&self.path)?;
+
+        for value in self.values.iter() {
+            let len = value.len();
+            fd.write_u64::<BigEndian>(len as u64)?;
+            fd.write_all(value.as_bytes())?
+        }
+
+        Ok(())
+    }
+
+    pub fn load(path: PathBuf) -> Result<Self, Error> {
+        let mut fd = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(path.clone())?;
+
+        let mut values = vec![];
+
+        loop {
+            let len = match fd.read_u64::<BigEndian>() {
+                Ok(len) => len,
+                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
+                Err(e) => return Err(e.into()),
+            };
+            let mut bytes = vec![0u8; len as usize];
+            fd.read_exact(&mut bytes)?;
+            let value = std::str::from_utf8(&bytes).or(Err(Error::UTF8Error))?;
+            values.push(value.to_string());
+        }
+
+        Ok(Self { values, path })
     }
 }
