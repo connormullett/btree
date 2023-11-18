@@ -2,10 +2,10 @@ use crate::error::Error;
 use crate::node::Node;
 use crate::node_type::{Key, NodeType, Offset};
 use crate::page_layout::{
-    ToByte, INTERNAL_NODE_HEADER_SIZE, INTERNAL_NODE_NUM_CHILDREN_OFFSET,
+    ToByte, COMMON_NODE_HEADER_SIZE, INTERNAL_NODE_HEADER_SIZE, INTERNAL_NODE_NUM_CHILDREN_OFFSET,
     INTERNAL_NODE_NUM_CHILDREN_SIZE, IS_ROOT_OFFSET, KEY_SIZE, LEAF_NODE_HEADER_SIZE,
-    LEAF_NODE_NUM_PAIRS_OFFSET, LEAF_NODE_NUM_PAIRS_SIZE, NODE_TYPE_OFFSET, PAGE_SIZE,
-    PARENT_POINTER_OFFSET, PARENT_POINTER_SIZE, PTR_SIZE, VALUE_SIZE,
+    LEAF_NODE_NUM_PAIRS_OFFSET, LEAF_NODE_NUM_PAIRS_SIZE, NODE_TYPE_OFFSET, PAGE_ID_SIZE,
+    PAGE_SIZE, PARENT_POINTER_OFFSET, PARENT_POINTER_SIZE, PTR_SIZE, VALUE_SIZE,
 };
 use std::convert::TryFrom;
 
@@ -136,7 +136,11 @@ impl TryFrom<&Node> for Page {
                     page_offset += KEY_SIZE
                 }
             }
-            NodeType::Leaf(kv_pairs) => {
+            NodeType::Leaf(page_id, kv_pairs) => {
+                // page id
+                data[COMMON_NODE_HEADER_SIZE..COMMON_NODE_HEADER_SIZE + PAGE_ID_SIZE]
+                    .clone_from_slice(&page_id.to_be_bytes());
+
                 // num of pairs
                 data[LEAF_NODE_NUM_PAIRS_OFFSET
                     ..LEAF_NODE_NUM_PAIRS_OFFSET + LEAF_NODE_NUM_PAIRS_SIZE]
@@ -195,6 +199,7 @@ impl TryFrom<&[u8]> for Value {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use crate::error::Error;
 
@@ -206,11 +211,14 @@ mod tests {
         use std::convert::TryFrom;
 
         let some_leaf = Node::new(
-            NodeType::Leaf(vec![
-                KeyValuePair::new("foo".to_string(), "bar".to_string()),
-                KeyValuePair::new("lebron".to_string(), "james".to_string()),
-                KeyValuePair::new("ariana".to_string(), "grande".to_string()),
-            ]),
+            NodeType::Leaf(
+                0,
+                vec![
+                    KeyValuePair::new("foo".to_string(), "bar".to_string()),
+                    KeyValuePair::new("lebron".to_string(), "james".to_string()),
+                    KeyValuePair::new("ariana".to_string(), "grande".to_string()),
+                ],
+            ),
             true,
             None,
         );

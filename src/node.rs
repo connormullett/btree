@@ -48,7 +48,7 @@ impl Node {
                     ),
                 ))
             }
-            NodeType::Leaf(ref mut pairs) => {
+            NodeType::Leaf(page_id, ref mut pairs) => {
                 // Populate siblings pairs.
                 let sibling_pairs = pairs.split_off(b);
                 // Pop median key.
@@ -57,7 +57,8 @@ impl Node {
                 Ok((
                     Key(median_pair.key),
                     Node::new(
-                        NodeType::Leaf(sibling_pairs),
+                        // TODO: Create a new page id here, verify creating this node moves keys when page is written
+                        NodeType::Leaf(page_id, sibling_pairs),
                         false,
                         self.parent_offset.clone(),
                     ),
@@ -111,7 +112,7 @@ impl TryFrom<Page> for Node {
                 ))
             }
 
-            NodeType::Leaf(mut pairs) => {
+            NodeType::Leaf(page_id, mut pairs) => {
                 let mut offset = LEAF_NODE_NUM_PAIRS_OFFSET;
                 let num_keys_val_pairs = page.get_value_from_offset(offset)?;
                 offset = LEAF_NODE_HEADER_SIZE;
@@ -137,7 +138,12 @@ impl TryFrom<Page> for Node {
                         value.trim_matches(char::from(0)).to_string(),
                     ))
                 }
-                Ok(Node::new(NodeType::Leaf(pairs), is_root, parent_offset))
+                // TODO: Create a new page_id here
+                Ok(Node::new(
+                    NodeType::Leaf(page_id, pairs),
+                    is_root,
+                    parent_offset,
+                ))
             }
 
             NodeType::Unexpected => Err(Error::UnexpectedError),
@@ -169,6 +175,7 @@ mod tests {
             0x01, // Is-Root byte.
             0x02, // Leaf Node type byte.
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Parent offset.
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Page Id
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // Number of Key-Value pairs.
             0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, // "hello"
             0x77, 0x6f, 0x72, 0x6c, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, // "world"
@@ -235,11 +242,14 @@ mod tests {
         use crate::node::Node;
         use crate::node_type::KeyValuePair;
         let mut node = Node::new(
-            NodeType::Leaf(vec![
-                KeyValuePair::new("foo".to_string(), "bar".to_string()),
-                KeyValuePair::new("lebron".to_string(), "james".to_string()),
-                KeyValuePair::new("ariana".to_string(), "grande".to_string()),
-            ]),
+            NodeType::Leaf(
+                0,
+                vec![
+                    KeyValuePair::new("foo".to_string(), "bar".to_string()),
+                    KeyValuePair::new("lebron".to_string(), "james".to_string()),
+                    KeyValuePair::new("ariana".to_string(), "grande".to_string()),
+                ],
+            ),
             true,
             None,
         );
@@ -248,23 +258,29 @@ mod tests {
         assert_eq!(median, Key("lebron".to_string()));
         assert_eq!(
             node.node_type,
-            NodeType::Leaf(vec![
-                KeyValuePair {
-                    key: "foo".to_string(),
-                    value: "bar".to_string()
-                },
-                KeyValuePair {
-                    key: "lebron".to_string(),
-                    value: "james".to_string()
-                }
-            ])
+            NodeType::Leaf(
+                0,
+                vec![
+                    KeyValuePair {
+                        key: "foo".to_string(),
+                        value: "bar".to_string()
+                    },
+                    KeyValuePair {
+                        key: "lebron".to_string(),
+                        value: "james".to_string()
+                    }
+                ]
+            )
         );
         assert_eq!(
             sibling.node_type,
-            NodeType::Leaf(vec![KeyValuePair::new(
-                "ariana".to_string(),
-                "grande".to_string()
-            )])
+            NodeType::Leaf(
+                0,
+                vec![KeyValuePair::new(
+                    "ariana".to_string(),
+                    "grande".to_string()
+                )]
+            )
         );
         Ok(())
     }

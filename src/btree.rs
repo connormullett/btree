@@ -56,7 +56,8 @@ impl BTreeBuilder {
         }
 
         let mut pager = Pager::new(self.path)?;
-        let root = Node::new(NodeType::Leaf(vec![]), true, None);
+        // TODO: Create new page ID here
+        let root = Node::new(NodeType::Leaf(0, vec![]), true, None);
         let root_offset = pager.write_page(Page::try_from(&root)?)?;
         let parent_directory = self.path.parent().unwrap_or_else(|| Path::new("/tmp"));
         let mut wal = Wal::new(parent_directory.to_path_buf())?;
@@ -84,7 +85,7 @@ impl Default for BTreeBuilder {
 impl BTree {
     fn is_node_full(&self, node: &Node) -> Result<bool, Error> {
         match &node.node_type {
-            NodeType::Leaf(pairs) => Ok(pairs.len() == (2 * self.b - 1)),
+            NodeType::Leaf(_, pairs) => Ok(pairs.len() == (2 * self.b - 1)),
             NodeType::Internal(_, keys) => Ok(keys.len() == (2 * self.b - 1)),
             NodeType::Unexpected => Err(Error::UnexpectedError),
         }
@@ -93,7 +94,7 @@ impl BTree {
     fn is_node_underflow(&self, node: &Node) -> Result<bool, Error> {
         match &node.node_type {
             // A root cannot really be "underflowing" as it can contain less than b-1 keys / pointers.
-            NodeType::Leaf(pairs) => Ok(pairs.len() < self.b - 1 && !node.is_root),
+            NodeType::Leaf(_, pairs) => Ok(pairs.len() < self.b - 1 && !node.is_root),
             NodeType::Internal(_, keys) => Ok(keys.len() < self.b - 1 && !node.is_root),
             NodeType::Unexpected => Err(Error::UnexpectedError),
         }
@@ -146,9 +147,10 @@ impl BTree {
         kv: KeyValuePair,
     ) -> Result<(), Error> {
         match &mut node.node_type {
-            NodeType::Leaf(ref mut pairs) => {
+            NodeType::Leaf(_, ref mut pairs) => {
                 let idx = pairs.binary_search(&kv).unwrap_or_else(|x| x);
                 pairs.insert(idx, kv);
+                // TODO: write value to page ID file and return the offset at where it was written
                 self.pager
                     .write_page_at_offset(Page::try_from(&*node)?, &node_offset)
             }
@@ -217,7 +219,7 @@ impl BTree {
                 let child_node = Node::try_from(page)?;
                 self.search_node(child_node, search)
             }
-            NodeType::Leaf(pairs) => {
+            NodeType::Leaf(_, pairs) => {
                 if let Ok(idx) =
                     pairs.binary_search_by_key(&search.to_string(), |pair| pair.key.clone())
                 {
@@ -251,10 +253,11 @@ impl BTree {
         node_offset: &Offset,
     ) -> Result<(), Error> {
         match &mut node.node_type {
-            NodeType::Leaf(ref mut pairs) => {
+            NodeType::Leaf(_, ref mut pairs) => {
                 let key_idx = pairs
                     .binary_search_by_key(&key, |kv| Key(kv.key.clone()))
                     .map_err(|_| Error::KeyNotFound)?;
+                // TODO: Verify that page write overwrites the key which means we can skip an IO access
                 pairs.remove(key_idx);
                 self.pager
                     .write_page_at_offset(Page::try_from(&*node)?, node_offset)?;
@@ -349,13 +352,13 @@ impl BTree {
     // i.e. |first.keys| + |second.keys| <= [2*(b-1) for keys or 2*b for offsets].
     fn merge(&self, first: Node, second: Node) -> Result<Node, Error> {
         match first.node_type {
-            NodeType::Leaf(first_pairs) => {
-                if let NodeType::Leaf(second_pairs) = second.node_type {
+            NodeType::Leaf(_, first_pairs) => {
+                if let NodeType::Leaf(page_id, second_pairs) = second.node_type {
                     let merged_pairs: Vec<KeyValuePair> = first_pairs
                         .into_iter()
                         .chain(second_pairs.into_iter())
                         .collect();
-                    let node_type = NodeType::Leaf(merged_pairs);
+                    let node_type = NodeType::Leaf(page_id, merged_pairs);
                     Ok(Node::new(node_type, first.is_root, first.parent_offset))
                 } else {
                     Err(Error::UnexpectedError)
@@ -397,8 +400,11 @@ impl BTree {
                 }
                 Ok(())
             }
-            NodeType::Leaf(pairs) => {
-                println!("{}Key value pairs: {:?}", curr_prefix, pairs);
+            NodeType::Leaf(page_id, pairs) => {
+                println!(
+                    "{}Page ID: {} Key value pairs: {:?}",
+                    page_id, curr_prefix, pairs
+                );
                 Ok(())
             }
             NodeType::Unexpected => Err(Error::UnexpectedError),
