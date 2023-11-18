@@ -1,3 +1,4 @@
+use byteorder::{BigEndian, ReadBytesExt};
 use uuid::Uuid;
 
 use crate::error::Error;
@@ -9,6 +10,7 @@ use crate::page_layout::{
     PARENT_POINTER_OFFSET, PTR_SIZE, VALUE_SIZE,
 };
 use std::convert::TryFrom;
+use std::mem::size_of;
 use std::str;
 
 pub(crate) fn new_node_id() -> usize {
@@ -133,17 +135,14 @@ impl TryFrom<Page> for Node {
                     };
                     offset += KEY_SIZE;
 
-                    let value_raw = page.get_ptr_from_offset(offset, VALUE_SIZE);
-                    let value = match str::from_utf8(value_raw) {
-                        Ok(val) => val,
-                        Err(_) => return Err(Error::UTF8Error),
-                    };
+                    let mut value_offset_raw = page.get_ptr_from_offset(offset, size_of::<usize>());
+                    let value_offset = value_offset_raw.read_u64::<BigEndian>()? as usize;
                     offset += VALUE_SIZE;
 
                     // Trim leading or trailing zeros.
                     pairs.push(KeyValuePair::new(
                         key.trim_matches(char::from(0)).to_string(),
-                        value.trim_matches(char::from(0)).to_string(),
+                        Offset(value_offset),
                     ))
                 }
                 Ok(Node::new(
@@ -171,7 +170,7 @@ mod tests {
         Node, Page, INTERNAL_NODE_HEADER_SIZE, KEY_SIZE, LEAF_NODE_HEADER_SIZE, PTR_SIZE,
         VALUE_SIZE,
     };
-    use crate::node_type::{Key, NodeType};
+    use crate::node_type::{Key, NodeType, Offset};
     use crate::page_layout::PAGE_SIZE;
     use std::convert::TryFrom;
 
@@ -252,9 +251,9 @@ mod tests {
             NodeType::Leaf(
                 0,
                 vec![
-                    KeyValuePair::new("foo".to_string(), "bar".to_string()),
-                    KeyValuePair::new("lebron".to_string(), "james".to_string()),
-                    KeyValuePair::new("ariana".to_string(), "grande".to_string()),
+                    KeyValuePair::new("foo".to_string(), Offset(0)),
+                    KeyValuePair::new("lebron".to_string(), Offset(20)),
+                    KeyValuePair::new("ariana".to_string(), Offset(40)),
                 ],
             ),
             true,
@@ -270,11 +269,11 @@ mod tests {
                 vec![
                     KeyValuePair {
                         key: "foo".to_string(),
-                        value: "bar".to_string()
+                        offset: Offset(0)
                     },
                     KeyValuePair {
                         key: "lebron".to_string(),
-                        value: "james".to_string()
+                        offset: Offset(20)
                     }
                 ]
             )
@@ -289,7 +288,7 @@ mod tests {
             sibling_key_values,
             vec![KeyValuePair {
                 key: "ariana".to_string(),
-                value: "grande".to_string()
+                offset: Offset(40)
             }]
         );
         Ok(())

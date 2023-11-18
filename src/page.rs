@@ -160,7 +160,7 @@ impl TryFrom<&Node> for Page {
                     data[page_offset..page_offset + KEY_SIZE].clone_from_slice(&raw_key);
                     page_offset += KEY_SIZE;
 
-                    let value_bytes = pair.value.as_bytes();
+                    let value_bytes = pair.offset.as_bytes();
                     let mut raw_value: [u8; VALUE_SIZE] = [0x00; VALUE_SIZE];
                     if value_bytes.len() > VALUE_SIZE {
                         return Err(Error::ValueOverflowError);
@@ -201,7 +201,7 @@ impl TryFrom<&[u8]> for Value {
 
 #[cfg(test)]
 mod tests {
-    use crate::error::Error;
+    use crate::{error::Error, node_type::Offset};
 
     #[test]
     fn node_to_page_works_for_leaf_node() -> Result<(), Error> {
@@ -211,9 +211,9 @@ mod tests {
         use std::convert::TryFrom;
 
         let key_values = vec![
-            KeyValuePair::new("foo".to_string(), "bar".to_string()),
-            KeyValuePair::new("lebron".to_string(), "james".to_string()),
-            KeyValuePair::new("ariana".to_string(), "grande".to_string()),
+            KeyValuePair::new("foo".to_string(), Offset(0)),
+            KeyValuePair::new("lebron".to_string(), Offset(20)),
+            KeyValuePair::new("ariana".to_string(), Offset(40)),
         ];
 
         let some_leaf = Node::new(NodeType::Leaf(0, key_values.clone()), true, None);

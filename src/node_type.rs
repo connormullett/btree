@@ -7,6 +7,12 @@ use std::convert::TryFrom;
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Offset(pub usize);
 
+impl Offset {
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.0.to_be_bytes().to_vec()
+    }
+}
+
 /// Converts an array of length len(usize) to a usize as a BigEndian integer.
 impl TryFrom<[u8; PTR_SIZE]> for Offset {
     type Error = Error;
@@ -22,7 +28,7 @@ pub struct Key(pub String);
 #[derive(Clone, Eq, Debug)]
 pub struct KeyValuePair {
     pub key: String,
-    pub value: String,
+    pub offset: Offset,
 }
 
 impl Ord for KeyValuePair {
@@ -39,13 +45,13 @@ impl PartialOrd for KeyValuePair {
 
 impl PartialEq for KeyValuePair {
     fn eq(&self, other: &Self) -> bool {
-        self.key == other.key && self.value == other.value
+        self.key == other.key && self.offset == other.offset
     }
 }
 
 impl KeyValuePair {
-    pub fn new(key: String, value: String) -> KeyValuePair {
-        KeyValuePair { key, value }
+    pub fn new(key: String, offset: Offset) -> KeyValuePair {
+        KeyValuePair { key, offset }
     }
 }
 
