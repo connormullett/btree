@@ -210,26 +210,26 @@ mod tests {
         use crate::page::Page;
         use std::convert::TryFrom;
 
-        let some_leaf = Node::new(
-            NodeType::Leaf(
-                0,
-                vec![
-                    KeyValuePair::new("foo".to_string(), "bar".to_string()),
-                    KeyValuePair::new("lebron".to_string(), "james".to_string()),
-                    KeyValuePair::new("ariana".to_string(), "grande".to_string()),
-                ],
-            ),
-            true,
-            None,
-        );
+        let key_values = vec![
+            KeyValuePair::new("foo".to_string(), "bar".to_string()),
+            KeyValuePair::new("lebron".to_string(), "james".to_string()),
+            KeyValuePair::new("ariana".to_string(), "grande".to_string()),
+        ];
+
+        let some_leaf = Node::new(NodeType::Leaf(0, key_values.clone()), true, None);
 
         // Serialize data.
         let page = Page::try_from(&some_leaf)?;
         // Deserialize back the page.
         let res = Node::try_from(page)?;
 
+        let pairs = match res.node_type {
+            NodeType::Leaf(_, vec) => vec,
+            _ => panic!("expected leaf node"),
+        };
+
         assert_eq!(res.is_root, some_leaf.is_root);
-        assert_eq!(res.node_type, some_leaf.node_type);
+        assert_eq!(pairs, key_values);
         assert_eq!(res.parent_offset, some_leaf.parent_offset);
         Ok(())
     }

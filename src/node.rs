@@ -1,3 +1,5 @@
+use uuid::Uuid;
+
 use crate::error::Error;
 use crate::node_type::{Key, KeyValuePair, NodeType, Offset};
 use crate::page::Page;
@@ -8,6 +10,12 @@ use crate::page_layout::{
 };
 use std::convert::TryFrom;
 use std::str;
+
+pub(crate) fn new_node_id() -> usize {
+    let uuid = Uuid::new_v4();
+    let (_, id) = uuid.as_u64_pair();
+    id as usize
+}
 
 /// Node represents a node in the BTree occupied by a single page in memory.
 #[derive(Clone, Debug)]
@@ -48,7 +56,7 @@ impl Node {
                     ),
                 ))
             }
-            NodeType::Leaf(page_id, ref mut pairs) => {
+            NodeType::Leaf(_, ref mut pairs) => {
                 // Populate siblings pairs.
                 let sibling_pairs = pairs.split_off(b);
                 // Pop median key.
@@ -57,8 +65,8 @@ impl Node {
                 Ok((
                     Key(median_pair.key),
                     Node::new(
-                        // TODO: Create a new page id here, verify creating this node moves keys when page is written
-                        NodeType::Leaf(page_id, sibling_pairs),
+                        // TODO: Verify creating this node moves keys when page is written
+                        NodeType::Leaf(new_node_id(), sibling_pairs),
                         false,
                         self.parent_offset.clone(),
                     ),
@@ -112,7 +120,7 @@ impl TryFrom<Page> for Node {
                 ))
             }
 
-            NodeType::Leaf(page_id, mut pairs) => {
+            NodeType::Leaf(_, mut pairs) => {
                 let mut offset = LEAF_NODE_NUM_PAIRS_OFFSET;
                 let num_keys_val_pairs = page.get_value_from_offset(offset)?;
                 offset = LEAF_NODE_HEADER_SIZE;
@@ -138,9 +146,8 @@ impl TryFrom<Page> for Node {
                         value.trim_matches(char::from(0)).to_string(),
                     ))
                 }
-                // TODO: Create a new page_id here
                 Ok(Node::new(
-                    NodeType::Leaf(page_id, pairs),
+                    NodeType::Leaf(new_node_id(), pairs),
                     is_root,
                     parent_offset,
                 ))
@@ -272,15 +279,18 @@ mod tests {
                 ]
             )
         );
+
+        let sibling_key_values = match sibling.node_type {
+            NodeType::Leaf(_, key_values) => key_values,
+            _ => panic!("expected leaf node"),
+        };
+
         assert_eq!(
-            sibling.node_type,
-            NodeType::Leaf(
-                0,
-                vec![KeyValuePair::new(
-                    "ariana".to_string(),
-                    "grande".to_string()
-                )]
-            )
+            sibling_key_values,
+            vec![KeyValuePair {
+                key: "ariana".to_string(),
+                value: "grande".to_string()
+            }]
         );
         Ok(())
     }

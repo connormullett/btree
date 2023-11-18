@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::node::Node;
+use crate::node::{new_node_id, Node};
 use crate::node_type::{Key, KeyValuePair, NodeType, Offset};
 use crate::page::Page;
 use crate::pager::Pager;
@@ -56,8 +56,7 @@ impl BTreeBuilder {
         }
 
         let mut pager = Pager::new(self.path)?;
-        // TODO: Create new page ID here
-        let root = Node::new(NodeType::Leaf(0, vec![]), true, None);
+        let root = Node::new(NodeType::Leaf(new_node_id(), vec![]), true, None);
         let root_offset = pager.write_page(Page::try_from(&root)?)?;
         let parent_directory = self.path.parent().unwrap_or_else(|| Path::new("/tmp"));
         let mut wal = Wal::new(parent_directory.to_path_buf())?;
