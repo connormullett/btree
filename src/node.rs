@@ -58,7 +58,7 @@ impl Node {
                     ),
                 ))
             }
-            NodeType::Leaf(_, ref mut pairs) => {
+            NodeType::Leaf(page_id, ref mut pairs) => {
                 // Populate siblings pairs.
                 let sibling_pairs = pairs.split_off(b);
                 // Pop median key.
@@ -67,7 +67,7 @@ impl Node {
                 Ok((
                     Key(median_pair.key),
                     Node::new(
-                        NodeType::Leaf(new_node_id(), sibling_pairs),
+                        NodeType::Leaf(page_id, sibling_pairs),
                         false,
                         self.parent_offset.clone(),
                     ),

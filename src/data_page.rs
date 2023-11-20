@@ -20,40 +20,21 @@ impl DataPage {
     }
 
     pub fn insert(&mut self, value: String) -> Result<usize, Error> {
-        let idx = self.values.len();
-        self.values.push(value);
-        self.flush()?;
-        Ok(idx)
-    }
-
-    pub fn delete(&mut self, idx: usize) -> Result<(), Error> {
-        self.values.remove(idx);
-        self.flush()?;
-        Ok(())
-    }
-
-    pub fn flush(&self) -> Result<(), Error> {
         let mut fd = OpenOptions::new()
             .create(true)
             .read(true)
             .append(true)
             .open(&self.path)?;
 
-        let mut content = String::new();
-        let _ = fd.read_to_string(&mut content);
-        println!("path {}", self.path.display());
-        println!("values {:?}", self.values);
-        println!("flushing {content}");
+        fd.seek(SeekFrom::End(0))?;
+        let len = value.len();
+        let idx = self.values.len();
+        self.values.push(value.clone());
 
-        fd.seek(SeekFrom::Start(0))?;
+        fd.write_u64::<BigEndian>(len as u64)?;
+        fd.write_all(value.as_bytes())?;
 
-        for value in self.values.iter() {
-            let len = value.len();
-            fd.write_u64::<BigEndian>(len as u64)?;
-            fd.write_all(value.as_bytes())?
-        }
-
-        Ok(())
+        Ok(idx)
     }
 
     pub fn load(path: PathBuf) -> Result<Self, Error> {
@@ -65,7 +46,6 @@ impl DataPage {
 
         let mut contents = String::new();
         let _ = fd.read_to_string(&mut contents);
-        println!("contents {contents}");
 
         fd.seek(SeekFrom::Start(0))?;
 

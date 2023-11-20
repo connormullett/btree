@@ -261,13 +261,11 @@ impl BTree {
         node_offset: &Offset,
     ) -> Result<(), Error> {
         match &mut node.node_type {
-            NodeType::Leaf(page_id, ref mut pairs) => {
+            NodeType::Leaf(_, ref mut pairs) => {
                 let key_idx = pairs
                     .binary_search_by_key(&key, |kv| Key(kv.key.clone()))
                     .map_err(|_| Error::KeyNotFound)?;
-                let kv = pairs.get(key_idx).ok_or(Error::UnexpectedError)?;
-                let mut data_page = DataPage::load(PathBuf::from(format!("/tmp/{}", page_id)))?;
-                data_page.delete(kv.offset.0)?;
+                // TODO: Remove the key from the data page
                 pairs.remove(key_idx);
                 self.pager
                     .write_page_at_offset(Page::try_from(&*node)?, node_offset)?;
@@ -447,10 +445,10 @@ mod tests {
         btree.insert("c".to_string(), "marhaba".to_string())?;
 
         let mut v = btree.search("b".to_string())?;
-        assert_eq!(v, "b");
+        assert_eq!(v, "hello");
 
         v = btree.search("c".to_string())?;
-        assert_eq!(v, "c");
+        assert_eq!(v, "marhaba");
 
         Ok(())
     }
@@ -473,42 +471,32 @@ mod tests {
         btree.insert("g".to_string(), "Konnichiwa".to_string())?;
         btree.insert("h".to_string(), "Ni hao".to_string())?;
         btree.insert("i".to_string(), "Ciao".to_string())?;
-        btree.print().unwrap();
 
         let mut v = btree.search("a".to_string())?;
-        assert_eq!(v, "a");
         assert_eq!(v, "shalom");
 
         v = btree.search("b".to_string())?;
-        assert_eq!(v, "b");
         assert_eq!(v, "hello");
 
         v = btree.search("c".to_string())?;
-        assert_eq!(v, "c");
         assert_eq!(v, "marhaba");
 
         v = btree.search("d".to_string())?;
-        assert_eq!(v, "d");
         assert_eq!(v, "olah");
 
         v = btree.search("e".to_string())?;
-        assert_eq!(v, "e");
         assert_eq!(v, "salam");
 
         v = btree.search("f".to_string())?;
-        assert_eq!(v, "f");
         assert_eq!(v, "hallo");
 
         v = btree.search("g".to_string())?;
-        assert_eq!(v, "g");
         assert_eq!(v, "Konnichiwa");
 
         v = btree.search("h".to_string())?;
-        assert_eq!(v, "h");
         assert_eq!(v, "Ni hao");
 
         v = btree.search("i".to_string())?;
-        assert_eq!(v, "i");
         assert_eq!(v, "Ciao");
         Ok(())
     }
@@ -532,7 +520,6 @@ mod tests {
         btree.insert("c".to_string(), "marhaba".to_string())?;
 
         let mut v = btree.search("c".to_string())?;
-        assert_eq!(v, "c");
         assert_eq!(v, "marhaba");
 
         btree.delete(Key("c".to_string()))?;
@@ -540,7 +527,6 @@ mod tests {
         assert!(matches!(res, Err(Error::KeyNotFound)));
 
         v = btree.search("d".to_string())?;
-        assert_eq!(v, "d");
         assert_eq!(v, "olah");
 
         btree.delete(Key("d".to_string()))?;
