@@ -1,6 +1,6 @@
 use std::{
     fs::OpenOptions,
-    io::{self, Read, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::PathBuf,
 };
 
@@ -36,8 +36,16 @@ impl DataPage {
         let mut fd = OpenOptions::new()
             .create(true)
             .read(true)
-            .write(true)
+            .append(true)
             .open(&self.path)?;
+
+        let mut content = String::new();
+        let _ = fd.read_to_string(&mut content);
+        println!("path {}", self.path.display());
+        println!("values {:?}", self.values);
+        println!("flushing {content}");
+
+        fd.seek(SeekFrom::Start(0))?;
 
         for value in self.values.iter() {
             let len = value.len();
@@ -51,9 +59,15 @@ impl DataPage {
     pub fn load(path: PathBuf) -> Result<Self, Error> {
         let mut fd = OpenOptions::new()
             .create(true)
+            .append(true)
             .read(true)
-            .write(true)
             .open(path.clone())?;
+
+        let mut contents = String::new();
+        let _ = fd.read_to_string(&mut contents);
+        println!("contents {contents}");
+
+        fd.seek(SeekFrom::Start(0))?;
 
         let mut values = vec![];
 

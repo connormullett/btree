@@ -6,7 +6,7 @@ use crate::node_type::{Key, KeyValuePair, NodeType, Offset};
 use crate::page::Page;
 use crate::page_layout::{
     FromByte, INTERNAL_NODE_HEADER_SIZE, INTERNAL_NODE_NUM_CHILDREN_OFFSET, IS_ROOT_OFFSET,
-    KEY_SIZE, LEAF_NODE_HEADER_SIZE, LEAF_NODE_NUM_PAIRS_OFFSET, NODE_TYPE_OFFSET,
+    KEY_SIZE, LEAF_NODE_HEADER_SIZE, LEAF_NODE_PAGE_ID_OFFSET, NODE_TYPE_OFFSET,
     PARENT_POINTER_OFFSET, PTR_SIZE, VALUE_SIZE,
 };
 use std::convert::TryFrom;
@@ -122,7 +122,11 @@ impl TryFrom<Page> for Node {
             }
 
             NodeType::Leaf(_, mut pairs) => {
-                let mut offset = LEAF_NODE_NUM_PAIRS_OFFSET;
+                let mut offset = LEAF_NODE_PAGE_ID_OFFSET;
+
+                let page_id = page.get_value_from_offset(offset)?;
+                offset += PTR_SIZE;
+
                 let num_keys_val_pairs = page.get_value_from_offset(offset)?;
                 offset = LEAF_NODE_HEADER_SIZE;
 
@@ -145,7 +149,7 @@ impl TryFrom<Page> for Node {
                     ))
                 }
                 Ok(Node::new(
-                    NodeType::Leaf(new_node_id(), pairs),
+                    NodeType::Leaf(page_id, pairs),
                     is_root,
                     parent_offset,
                 ))

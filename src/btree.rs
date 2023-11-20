@@ -473,6 +473,7 @@ mod tests {
         btree.insert("g".to_string(), "Konnichiwa".to_string())?;
         btree.insert("h".to_string(), "Ni hao".to_string())?;
         btree.insert("i".to_string(), "Ciao".to_string())?;
+        btree.print().unwrap();
 
         let mut v = btree.search("a".to_string())?;
         assert_eq!(v, "a");

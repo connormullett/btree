@@ -23,6 +23,7 @@ pub const COMMON_NODE_HEADER_SIZE: usize = NODE_TYPE_SIZE + IS_ROOT_SIZE + PAREN
 /// Which leaves 4076 / keys_limit = 20 (ten for key and 10 for value).
 pub const LEAF_NODE_NUM_PAIRS_OFFSET: usize = COMMON_NODE_HEADER_SIZE + PAGE_ID_SIZE;
 pub const LEAF_NODE_NUM_PAIRS_SIZE: usize = PTR_SIZE;
+pub const LEAF_NODE_PAGE_ID_OFFSET: usize = COMMON_NODE_HEADER_SIZE;
 pub const LEAF_NODE_HEADER_SIZE: usize =
     COMMON_NODE_HEADER_SIZE + PAGE_ID_SIZE + LEAF_NODE_NUM_PAIRS_SIZE;
 
