@@ -5,4 +5,4 @@ build:
 
 .PHONY:	test
 test:
-	cargo test --verbose -- --test-threads=1 --nocapture
+	cargo test -- --test-threads=1 --nocapture
