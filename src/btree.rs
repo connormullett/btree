@@ -4,12 +4,12 @@ use crate::error::Error;
 use crate::node::Node;
 use crate::node_type::{Key, KeyValuePair, NodeType, Offset};
 use crate::page::Page;
-use crate::page_layout::PAGE_SIZE;
+use crate::page_layout::{PAGE_SIZE, PTR_SIZE};
 use crate::pager::Pager;
 use crate::wal::Wal;
 use std::cmp;
 use std::convert::TryFrom;
-use std::io::{Cursor, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Cursor, Seek, SeekFrom};
 use std::path::Path;
 
 /// B+Tree properties.
@@ -173,10 +173,11 @@ impl BTree {
             NodeType::Leaf(ref mut data_offset, ref mut pairs) => {
                 dbg!(key.clone());
                 // find the end of the page
-                let page = self.data_pager.get_page(&data_offset)?;
+                let mut page = self.data_pager.get_page(&data_offset)?;
                 let page_data = page.get_data();
-                let mut cursor = Cursor::new(page_data);
-                let offset = cursor.seek(SeekFrom::End(0))?;
+                let mut reader = BufReader::new(&page_data[..]);
+                let mut buf = vec![];
+                let offset = reader.read_until(0x00, &mut buf)?;
 
                 // set the offset to the data page offset + offset within the page
                 let page_offset = data_offset.0 + offset as usize;
@@ -191,6 +192,13 @@ impl BTree {
                 pairs.insert(idx, kv);
 
                 // write to pages
+                page.write_value_at_offset(offset, value.bytes().len())?;
+                page.write_bytes_at_offset(
+                    value.as_bytes(),
+                    offset + PTR_SIZE,
+                    value.bytes().len(),
+                )?;
+
                 self.data_pager.write_page_at_offset(page, &data_offset)?;
                 self.pager
                     .write_page_at_offset(Page::try_from(&*node)?, &node_offset)
@@ -263,7 +271,14 @@ impl BTree {
                 if let Ok(idx) =
                     pairs.binary_search_by_key(&search.to_string(), |pair| pair.key.clone())
                 {
-                    todo!()
+                    let value = pairs.get(idx).ok_or(Error::KeyNotFound)?;
+                    let page_offset = data_offset.0 + value.offset.0;
+                    let page = self.data_pager.get_page(&data_offset)?;
+                    let len_value = page.get_value_from_offset(page_offset)?;
+                    let value = page.get_at_offset(page_offset + 1, len_value);
+                    let decoded_value =
+                        std::str::from_utf8(value).or(Err(Error::UnexpectedError))?;
+                    return Ok(decoded_value.to_string());
                 }
                 Err(Error::KeyNotFound)
             }
