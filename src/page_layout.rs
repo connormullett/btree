@@ -4,7 +4,6 @@ use std::mem::size_of;
 /// A single page size.
 /// Each page represents a node in the BTree.
 pub const PAGE_SIZE: usize = 4096;
-pub const PAGE_ID_SIZE: usize = 8;
 
 pub const PTR_SIZE: usize = size_of::<usize>();
 
@@ -18,14 +17,13 @@ pub const PARENT_POINTER_SIZE: usize = PTR_SIZE;
 pub const COMMON_NODE_HEADER_SIZE: usize = NODE_TYPE_SIZE + IS_ROOT_SIZE + PARENT_POINTER_SIZE;
 
 /// Leaf node header layout (26 bytes in total)
-///
-/// Space for keys and values: PAGE_SIZE - LEAF_NODE_HEADER_SIZE = 4096 - 18 = 4078 bytes.
-/// Which leaves 4076 / keys_limit = 20 (ten for key and 10 for value).
-pub const LEAF_NODE_NUM_PAIRS_OFFSET: usize = COMMON_NODE_HEADER_SIZE + PAGE_ID_SIZE;
+pub const LEAF_NODE_DATA_PAGE_OFFSET: usize = COMMON_NODE_HEADER_SIZE;
+pub const LEAF_NODE_DATA_PAGE_OFFSET_SIZE: usize = PTR_SIZE;
+pub const LEAF_NODE_NUM_PAIRS_OFFSET: usize =
+    COMMON_NODE_HEADER_SIZE + LEAF_NODE_DATA_PAGE_OFFSET_SIZE;
 pub const LEAF_NODE_NUM_PAIRS_SIZE: usize = PTR_SIZE;
-pub const LEAF_NODE_PAGE_ID_OFFSET: usize = COMMON_NODE_HEADER_SIZE;
 pub const LEAF_NODE_HEADER_SIZE: usize =
-    COMMON_NODE_HEADER_SIZE + PAGE_ID_SIZE + LEAF_NODE_NUM_PAIRS_SIZE;
+    COMMON_NODE_HEADER_SIZE + LEAF_NODE_DATA_PAGE_OFFSET_SIZE + LEAF_NODE_NUM_PAIRS_SIZE;
 
 /// Internal header layout (Eighteen bytes in total)
 ///

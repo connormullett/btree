@@ -62,7 +62,7 @@ pub enum NodeType {
     Internal(Vec<Offset>, Vec<Key>),
 
     /// Leaf nodes contain a vector of Keys and values.
-    Leaf(usize, Vec<KeyValuePair>),
+    Leaf(Offset, Vec<KeyValuePair>),
 
     Unexpected,
 }
@@ -72,7 +72,7 @@ impl From<u8> for NodeType {
     fn from(orig: u8) -> NodeType {
         match orig {
             0x01 => NodeType::Internal(Vec::<Offset>::new(), Vec::<Key>::new()),
-            0x02 => NodeType::Leaf(0, Vec::<KeyValuePair>::new()),
+            0x02 => NodeType::Leaf(Offset(0), Vec::<KeyValuePair>::new()),
             _ => NodeType::Unexpected,
         }
     }

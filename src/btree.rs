@@ -1,13 +1,14 @@
 use crate::data_page::DataPage;
+use crate::data_pager::DataPager;
 use crate::error::Error;
-use crate::node::{new_node_id, Node};
+use crate::node::Node;
 use crate::node_type::{Key, KeyValuePair, NodeType, Offset};
 use crate::page::Page;
 use crate::pager::Pager;
 use crate::wal::Wal;
 use std::cmp;
 use std::convert::TryFrom;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// B+Tree properties.
 pub const MAX_BRANCHING_FACTOR: usize = 200;
@@ -17,14 +18,17 @@ pub const NODE_KEYS_LIMIT: usize = MAX_BRANCHING_FACTOR - 1;
 /// Each node is persisted in the table file, the leaf nodes contain the values.
 pub struct BTree {
     pager: Pager,
+    data_pager: DataPager,
     b: usize,
     wal: Wal,
 }
 
 /// BtreeBuilder is a Builder for the BTree struct.
 pub struct BTreeBuilder {
-    /// Path to the tree file.
+    /// Path to the tree file, db index.
     path: &'static Path,
+    /// Path to data store.
+    data_path: &'static Path,
     /// The BTree parameter, an inner node contains no more than 2*b-1 keys and no less than b-1 keys
     /// and no more than 2*b children and no less than b children.
     b: usize,
@@ -34,12 +38,18 @@ impl BTreeBuilder {
     pub fn new() -> BTreeBuilder {
         BTreeBuilder {
             path: Path::new(""),
+            data_path: Path::new(""),
             b: 0,
         }
     }
 
     pub fn path(mut self, path: &'static Path) -> BTreeBuilder {
         self.path = path;
+        self
+    }
+
+    pub fn data_path(mut self, path: &'static Path) -> BTreeBuilder {
+        self.data_path = path;
         self
     }
 
@@ -57,14 +67,18 @@ impl BTreeBuilder {
         }
 
         let mut pager = Pager::new(self.path)?;
-        let root = Node::new(NodeType::Leaf(new_node_id(), vec![]), true, None);
+        let mut data_pager = DataPager::new(self.data_path)?;
+
+        let root = Node::new(NodeType::Leaf(Offset(0), vec![]), true, None);
         let root_offset = pager.write_page(Page::try_from(&root)?)?;
+
         let parent_directory = self.path.parent().unwrap_or_else(|| Path::new("/tmp"));
         let mut wal = Wal::new(parent_directory.to_path_buf())?;
         wal.set_root(root_offset)?;
 
         Ok(BTree {
             pager,
+            data_pager,
             b: self.b,
             wal,
         })
@@ -148,14 +162,8 @@ impl BTree {
         value: String,
     ) -> Result<(), Error> {
         match &mut node.node_type {
-            NodeType::Leaf(page_id, ref mut pairs) => {
-                let mut data_page = DataPage::load(PathBuf::from(format!("/tmp/{}", page_id)))?;
-                let offset = data_page.insert(value)?;
-                let kv = KeyValuePair {
-                    key,
-                    offset: Offset(offset),
-                };
-
+            NodeType::Leaf(data_offset, ref mut pairs) => {
+                let kv = todo!();
                 let idx = pairs.binary_search(&kv).unwrap_or_else(|x| x);
                 pairs.insert(idx, kv);
                 self.pager
@@ -224,14 +232,11 @@ impl BTree {
                 let child_node = Node::try_from(page)?;
                 self.search_node(child_node, search)
             }
-            NodeType::Leaf(page_id, pairs) => {
+            NodeType::Leaf(data_offset, pairs) => {
                 if let Ok(idx) =
                     pairs.binary_search_by_key(&search.to_string(), |pair| pair.key.clone())
                 {
-                    let offset = pairs[idx].offset.clone();
-                    let data_page = DataPage::load(PathBuf::from(format!("/tmp/{}", page_id)))?;
-                    let value = data_page.get(offset.0)?;
-                    return Ok(value.to_string());
+                    todo!()
                 }
                 Err(Error::KeyNotFound)
             }
@@ -360,13 +365,13 @@ impl BTree {
     // i.e. |first.keys| + |second.keys| <= [2*(b-1) for keys or 2*b for offsets].
     fn merge(&self, first: Node, second: Node) -> Result<Node, Error> {
         match first.node_type {
-            NodeType::Leaf(_, first_pairs) => {
-                if let NodeType::Leaf(page_id, second_pairs) = second.node_type {
+            NodeType::Leaf(offset, first_pairs) => {
+                if let NodeType::Leaf(_, second_pairs) = second.node_type {
                     let merged_pairs: Vec<KeyValuePair> = first_pairs
                         .into_iter()
                         .chain(second_pairs.into_iter())
                         .collect();
-                    let node_type = NodeType::Leaf(page_id, merged_pairs);
+                    let node_type = NodeType::Leaf(offset, merged_pairs);
                     Ok(Node::new(node_type, first.is_root, first.parent_offset))
                 } else {
                     Err(Error::UnexpectedError)
@@ -408,10 +413,10 @@ impl BTree {
                 }
                 Ok(())
             }
-            NodeType::Leaf(page_id, pairs) => {
+            NodeType::Leaf(data_offset, pairs) => {
                 println!(
-                    "{}Page ID: {} Key value pairs: {:?}",
-                    curr_prefix, page_id, pairs
+                    "{}DataOffset: {} Key value pairs: {:?}",
+                    curr_prefix, data_offset.0, pairs
                 );
                 Ok(())
             }

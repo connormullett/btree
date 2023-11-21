@@ -1,19 +1,23 @@
-use crate::error::Error;
-use crate::node_type::Offset;
-use crate::page::Page;
-use crate::page_layout::PAGE_SIZE;
-use std::fs::{File, OpenOptions};
-use std::io::Write;
-use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::{
+    fs::{File, OpenOptions},
+    io::{Read, Seek, SeekFrom, Write},
+    path::Path,
+};
 
-pub struct Pager {
+use crate::{
+    data_page::DataPage, error::Error, node_type::Offset, page::Page, page_layout::PAGE_SIZE,
+};
+
+// leaf nodes will contain the offset of where their page lives
+// should be able to sort keys and split pages (see TryFrom impls)
+// might require new data type
+pub struct DataPager {
     file: File,
     cursor: usize,
 }
 
-impl Pager {
-    pub fn new(path: &Path) -> Result<Pager, Error> {
+impl DataPager {
+    pub fn new(path: &Path) -> Result<DataPager, Error> {
         let fd = OpenOptions::new()
             .create(true)
             .read(true)
@@ -21,7 +25,7 @@ impl Pager {
             .truncate(true)
             .open(path)?;
 
-        Ok(Pager {
+        Ok(DataPager {
             file: fd,
             cursor: 0,
         })
@@ -34,7 +38,7 @@ impl Pager {
         Ok(Page::new(page))
     }
 
-    pub fn write_page(&mut self, page: Page) -> Result<Offset, Error> {
+    pub fn write_page(&mut self, page: DataPage) -> Result<Offset, Error> {
         self.file.seek(SeekFrom::Start(self.cursor as u64))?;
         self.file.write_all(&page.get_data())?;
         let res = Offset(self.cursor);
@@ -42,7 +46,7 @@ impl Pager {
         Ok(res)
     }
 
-    pub fn write_page_at_offset(&mut self, page: Page, offset: &Offset) -> Result<(), Error> {
+    pub fn write_page_at_offset(&mut self, page: DataPage, offset: &Offset) -> Result<(), Error> {
         self.file.seek(SeekFrom::Start(offset.0 as u64))?;
         self.file.write_all(&page.get_data())?;
         Ok(())

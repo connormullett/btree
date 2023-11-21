@@ -1,68 +1,79 @@
-use std::{
-    fs::OpenOptions,
-    io::{self, Read, Seek, SeekFrom, Write},
-    path::PathBuf,
+use std::convert::TryFrom;
+
+use crate::{
+    error::Error,
+    page::Value,
+    page_layout::{PAGE_SIZE, PTR_SIZE},
 };
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-
-use crate::error::Error;
-
 pub struct DataPage {
-    values: Vec<String>,
-    path: PathBuf,
+    data: Box<[u8; PAGE_SIZE]>,
 }
 
 impl DataPage {
-    pub fn get(&self, idx: usize) -> Result<String, Error> {
-        let value = self.values.get(idx).ok_or(Error::KeyNotFound)?;
-        Ok(value.clone())
-    }
-
-    pub fn insert(&mut self, value: String) -> Result<usize, Error> {
-        let mut fd = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .append(true)
-            .open(&self.path)?;
-
-        fd.seek(SeekFrom::End(0))?;
-        let len = value.len();
-        let idx = self.values.len();
-        self.values.push(value.clone());
-
-        fd.write_u64::<BigEndian>(len as u64)?;
-        fd.write_all(value.as_bytes())?;
-
-        Ok(idx)
-    }
-
-    pub fn load(path: PathBuf) -> Result<Self, Error> {
-        let mut fd = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .read(true)
-            .open(path.clone())?;
-
-        let mut contents = String::new();
-        let _ = fd.read_to_string(&mut contents);
-
-        fd.seek(SeekFrom::Start(0))?;
-
-        let mut values = vec![];
-
-        loop {
-            let len = match fd.read_u64::<BigEndian>() {
-                Ok(len) => len,
-                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
-                Err(e) => return Err(e.into()),
-            };
-            let mut bytes = vec![0u8; len as usize];
-            fd.read_exact(&mut bytes)?;
-            let value = std::str::from_utf8(&bytes).or(Err(Error::UTF8Error))?;
-            values.push(value.to_string());
+    pub fn new(data: [u8; PAGE_SIZE]) -> DataPage {
+        DataPage {
+            data: Box::new(data),
         }
+    }
 
-        Ok(Self { values, path })
+    /// write_value_at_offset writes a given value (as BigEndian) at a certain offset
+    /// overriding values at that offset.
+    pub fn write_value_at_offset(&mut self, offset: usize, value: usize) -> Result<(), Error> {
+        if offset > PAGE_SIZE - PTR_SIZE {
+            return Err(Error::UnexpectedError);
+        }
+        let bytes = value.to_be_bytes();
+        self.data[offset..offset + PTR_SIZE].clone_from_slice(&bytes);
+        Ok(())
+    }
+
+    /// get_value_from_offset Fetches a value calculated as BigEndian, sized to usize.
+    /// This function may error as the value might not fit into a usize.
+    pub fn get_value_from_offset(&self, offset: usize) -> Result<usize, Error> {
+        let bytes = &self.data[offset..offset + PTR_SIZE];
+        let Value(res) = Value::try_from(bytes)?;
+        Ok(res)
+    }
+
+    /// insert_bytes_at_offset pushes #size bytes from offset to end_offset
+    /// inserts #size bytes from given slice.
+    pub fn insert_bytes_at_offset(
+        &mut self,
+        bytes: &[u8],
+        offset: usize,
+        end_offset: usize,
+        size: usize,
+    ) -> Result<(), Error> {
+        // This Should not occur - better verify.
+        if end_offset + size > self.data.len() {
+            return Err(Error::UnexpectedError);
+        }
+        for idx in (offset..=end_offset).rev() {
+            self.data[idx + size] = self.data[idx]
+        }
+        self.data[offset..offset + size].clone_from_slice(bytes);
+        Ok(())
+    }
+
+    /// write_bytes_at_offset write bytes at a certain offset overriding previous values.
+    pub fn write_bytes_at_offset(
+        &mut self,
+        bytes: &[u8],
+        offset: usize,
+        size: usize,
+    ) -> Result<(), Error> {
+        self.data[offset..offset + size].clone_from_slice(bytes);
+        Ok(())
+    }
+
+    /// get_ptr_from_offset Fetches a slice of bytes from certain offset and of certain size.
+    pub fn get_at_offset(&self, offset: usize, size: usize) -> &[u8] {
+        &self.data[offset..offset + size]
+    }
+
+    /// get_data returns the underlying array.
+    pub fn get_data(&self) -> [u8; PAGE_SIZE] {
+        *self.data
     }
 }

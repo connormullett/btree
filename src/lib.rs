@@ -1,5 +1,6 @@
 pub mod btree;
 mod data_page;
+mod data_pager;
 pub mod error;
 pub mod node;
 pub mod node_type;

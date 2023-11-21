@@ -1,23 +1,16 @@
 use byteorder::{BigEndian, ReadBytesExt};
-use uuid::Uuid;
 
 use crate::error::Error;
 use crate::node_type::{Key, KeyValuePair, NodeType, Offset};
 use crate::page::Page;
 use crate::page_layout::{
     FromByte, INTERNAL_NODE_HEADER_SIZE, INTERNAL_NODE_NUM_CHILDREN_OFFSET, IS_ROOT_OFFSET,
-    KEY_SIZE, LEAF_NODE_HEADER_SIZE, LEAF_NODE_PAGE_ID_OFFSET, NODE_TYPE_OFFSET,
-    PARENT_POINTER_OFFSET, PTR_SIZE, VALUE_SIZE,
+    KEY_SIZE, LEAF_NODE_DATA_PAGE_OFFSET, LEAF_NODE_DATA_PAGE_OFFSET_SIZE, LEAF_NODE_HEADER_SIZE,
+    NODE_TYPE_OFFSET, PARENT_POINTER_OFFSET, PTR_SIZE, VALUE_SIZE,
 };
 use std::convert::TryFrom;
 use std::mem::size_of;
 use std::str;
-
-pub(crate) fn new_node_id() -> usize {
-    let uuid = Uuid::new_v4();
-    let (_, id) = uuid.as_u64_pair();
-    id as usize
-}
 
 /// Node represents a node in the BTree occupied by a single page in memory.
 #[derive(Clone, Debug)]
@@ -58,16 +51,17 @@ impl Node {
                     ),
                 ))
             }
-            NodeType::Leaf(page_id, ref mut pairs) => {
+            NodeType::Leaf(ref mut data_offset, ref mut pairs) => {
                 // Populate siblings pairs.
                 let sibling_pairs = pairs.split_off(b);
                 // Pop median key.
                 let median_pair = pairs.get(b - 1).ok_or(Error::UnexpectedError)?.clone();
+                let median_offset = data_offset.0 + median_pair.offset.0;
 
                 Ok((
                     Key(median_pair.key),
                     Node::new(
-                        NodeType::Leaf(page_id, sibling_pairs),
+                        NodeType::Leaf(Offset(median_offset), sibling_pairs),
                         false,
                         self.parent_offset.clone(),
                     ),
@@ -122,11 +116,12 @@ impl TryFrom<Page> for Node {
             }
 
             NodeType::Leaf(_, mut pairs) => {
-                let mut offset = LEAF_NODE_PAGE_ID_OFFSET;
+                // data page offset
+                let mut offset = LEAF_NODE_DATA_PAGE_OFFSET;
+                let data_offset = page.get_value_from_offset(offset)?;
 
-                let page_id = page.get_value_from_offset(offset)?;
-                offset += PTR_SIZE;
-
+                offset += LEAF_NODE_DATA_PAGE_OFFSET_SIZE;
+                // key value pairs
                 let num_keys_val_pairs = page.get_value_from_offset(offset)?;
                 offset = LEAF_NODE_HEADER_SIZE;
 
@@ -149,7 +144,7 @@ impl TryFrom<Page> for Node {
                     ))
                 }
                 Ok(Node::new(
-                    NodeType::Leaf(page_id, pairs),
+                    NodeType::Leaf(Offset(data_offset), pairs),
                     is_root,
                     parent_offset,
                 ))
@@ -184,7 +179,7 @@ mod tests {
             0x01, // Is-Root byte.
             0x02, // Leaf Node type byte.
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Parent offset.
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Page Id
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // DataPage offset.
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // Number of Key-Value pairs.
             0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, // "hello"
             0x77, 0x6f, 0x72, 0x6c, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, // "world"
@@ -252,7 +247,7 @@ mod tests {
         use crate::node_type::KeyValuePair;
         let mut node = Node::new(
             NodeType::Leaf(
-                0,
+                Offset(0),
                 vec![
                     KeyValuePair::new("foo".to_string(), Offset(0)),
                     KeyValuePair::new("lebron".to_string(), Offset(20)),
@@ -268,7 +263,7 @@ mod tests {
         assert_eq!(
             node.node_type,
             NodeType::Leaf(
-                0,
+                Offset(0),
                 vec![
                     KeyValuePair {
                         key: "foo".to_string(),
