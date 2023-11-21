@@ -56,12 +56,11 @@ impl Node {
                 let sibling_pairs = pairs.split_off(b);
                 // Pop median key.
                 let median_pair = pairs.get(b - 1).ok_or(Error::UnexpectedError)?.clone();
-                let median_offset = data_offset.0 + median_pair.offset.0;
 
                 Ok((
                     Key(median_pair.key),
                     Node::new(
-                        NodeType::Leaf(Offset(median_offset), sibling_pairs),
+                        NodeType::Leaf(data_offset.clone(), sibling_pairs),
                         false,
                         self.parent_offset.clone(),
                     ),

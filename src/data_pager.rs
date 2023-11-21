@@ -4,9 +4,7 @@ use std::{
     path::Path,
 };
 
-use crate::{
-    data_page::DataPage, error::Error, node_type::Offset, page::Page, page_layout::PAGE_SIZE,
-};
+use crate::{data_page::DataPage, error::Error, node_type::Offset, page_layout::PAGE_SIZE};
 
 // leaf nodes will contain the offset of where their page lives
 // should be able to sort keys and split pages (see TryFrom impls)
@@ -31,11 +29,13 @@ impl DataPager {
         })
     }
 
-    pub fn get_page(&mut self, offset: &Offset) -> Result<Page, Error> {
+    // TODO: Add way to handle overflow data pages
+
+    pub fn get_page(&mut self, offset: &Offset) -> Result<DataPage, Error> {
         let mut page: [u8; PAGE_SIZE] = [0x00; PAGE_SIZE];
         self.file.seek(SeekFrom::Start(offset.0 as u64))?;
-        self.file.read_exact(&mut page)?;
-        Ok(Page::new(page))
+        self.file.read_exact(&mut page).unwrap();
+        Ok(DataPage::new(page))
     }
 
     pub fn write_page(&mut self, page: DataPage) -> Result<Offset, Error> {

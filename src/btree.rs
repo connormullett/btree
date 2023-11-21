@@ -1,13 +1,15 @@
-use crate::data_page::DataPage;
+use crate::data_page::{self, DataPage};
 use crate::data_pager::DataPager;
 use crate::error::Error;
 use crate::node::Node;
 use crate::node_type::{Key, KeyValuePair, NodeType, Offset};
 use crate::page::Page;
+use crate::page_layout::PAGE_SIZE;
 use crate::pager::Pager;
 use crate::wal::Wal;
 use std::cmp;
 use std::convert::TryFrom;
+use std::io::{Cursor, Seek, SeekFrom};
 use std::path::Path;
 
 /// B+Tree properties.
@@ -68,6 +70,7 @@ impl BTreeBuilder {
 
         let mut pager = Pager::new(self.path)?;
         let mut data_pager = DataPager::new(self.data_path)?;
+        data_pager.write_page(DataPage::new([0u8; PAGE_SIZE]))?;
 
         let root = Node::new(NodeType::Leaf(Offset(0), vec![]), true, None);
         let root_offset = pager.write_page(Page::try_from(&root)?)?;
@@ -131,6 +134,11 @@ impl BTree {
             root.is_root = false;
             // split the old root.
             let (median, sibling) = root.split(self.b)?;
+            if let NodeType::Leaf(_, _) = sibling.node_type {
+                // create a new data page if a node was split
+                self.data_pager
+                    .write_page(DataPage::new([0u8; PAGE_SIZE]))?;
+            };
             // write the old root with its new data to disk in a *new* location.
             let old_root_offset = self.pager.write_page(Page::try_from(&root)?)?;
             // write the newly created sibling to disk.
@@ -162,16 +170,34 @@ impl BTree {
         value: String,
     ) -> Result<(), Error> {
         match &mut node.node_type {
-            NodeType::Leaf(data_offset, ref mut pairs) => {
-                let kv = todo!();
+            NodeType::Leaf(ref mut data_offset, ref mut pairs) => {
+                dbg!(key.clone());
+                // find the end of the page
+                let page = self.data_pager.get_page(&data_offset)?;
+                let page_data = page.get_data();
+                let mut cursor = Cursor::new(page_data);
+                let offset = cursor.seek(SeekFrom::End(0))?;
+
+                // set the offset to the data page offset + offset within the page
+                let page_offset = data_offset.0 + offset as usize;
+
+                let kv = KeyValuePair {
+                    key,
+                    offset: Offset(page_offset),
+                };
+
+                // find where the key should be inserted and upsert
                 let idx = pairs.binary_search(&kv).unwrap_or_else(|x| x);
                 pairs.insert(idx, kv);
+
+                // write to pages
+                self.data_pager.write_page_at_offset(page, &data_offset)?;
                 self.pager
                     .write_page_at_offset(Page::try_from(&*node)?, &node_offset)
             }
             NodeType::Internal(ref mut children, ref mut keys) => {
                 let idx = keys.binary_search(&Key(key.clone())).unwrap_or_else(|x| x);
-                let child_offset = children.get(idx).ok_or(Error::UnexpectedError)?.clone();
+                let child_offset: Offset = children.get(idx).ok_or(Error::UnexpectedError)?.clone();
                 let child_page = self.pager.get_page(&child_offset)?;
                 let mut child = Node::try_from(child_page)?;
                 // Copy each branching-node on the root-to-leaf walk.
@@ -187,6 +213,7 @@ impl BTree {
                         .write_page_at_offset(Page::try_from(&child)?, &new_child_offset)?;
                     // Write the newly created sibling to disk.
                     let sibling_offset = self.pager.write_page(Page::try_from(&sibling)?)?;
+
                     // Siblings keys are larger than the splitted child thus need to be inserted
                     // at the next index.
                     children.insert(idx + 1, sibling_offset.clone());
@@ -465,6 +492,7 @@ mod tests {
 
         let mut btree = BTreeBuilder::new()
             .path(Path::new("/tmp/db"))
+            .data_path(Path::new("/tmp/data"))
             .b_parameter(2)
             .build()?;
         btree.insert("a".to_string(), "shalom".to_string())?;
