@@ -2,10 +2,10 @@ use crate::error::Error;
 use crate::node::Node;
 use crate::node_type::{Key, NodeType, Offset};
 use crate::page_layout::{
-    ToByte, COMMON_NODE_HEADER_SIZE, INTERNAL_NODE_HEADER_SIZE, INTERNAL_NODE_NUM_CHILDREN_OFFSET,
-    INTERNAL_NODE_NUM_CHILDREN_SIZE, IS_ROOT_OFFSET, KEY_SIZE, LEAF_NODE_DATA_PAGE_OFFSET_SIZE,
-    LEAF_NODE_HEADER_SIZE, LEAF_NODE_NUM_PAIRS_OFFSET, LEAF_NODE_NUM_PAIRS_SIZE, NODE_TYPE_OFFSET,
-    PAGE_SIZE, PARENT_POINTER_OFFSET, PARENT_POINTER_SIZE, PTR_SIZE, VALUE_SIZE,
+    ToByte, INTERNAL_NODE_HEADER_SIZE, INTERNAL_NODE_NUM_CHILDREN_OFFSET,
+    INTERNAL_NODE_NUM_CHILDREN_SIZE, IS_ROOT_OFFSET, KEY_SIZE, LEAF_NODE_HEADER_SIZE,
+    LEAF_NODE_NUM_PAIRS_OFFSET, LEAF_NODE_NUM_PAIRS_SIZE, NODE_TYPE_OFFSET, PAGE_SIZE,
+    PARENT_POINTER_OFFSET, PARENT_POINTER_SIZE, PTR_SIZE, VALUE_SIZE,
 };
 use std::convert::TryFrom;
 
@@ -136,12 +136,7 @@ impl TryFrom<&Node> for Page {
                     page_offset += KEY_SIZE
                 }
             }
-            NodeType::Leaf(offset, kv_pairs) => {
-                // data offset
-                data[COMMON_NODE_HEADER_SIZE
-                    ..COMMON_NODE_HEADER_SIZE + LEAF_NODE_DATA_PAGE_OFFSET_SIZE]
-                    .clone_from_slice(&offset.0.to_be_bytes());
-
+            NodeType::Leaf(kv_pairs) => {
                 // num of pairs
                 data[LEAF_NODE_NUM_PAIRS_OFFSET
                     ..LEAF_NODE_NUM_PAIRS_OFFSET + LEAF_NODE_NUM_PAIRS_SIZE]
@@ -217,7 +212,7 @@ mod tests {
             KeyValuePair::new("ariana".to_string(), Offset(40)),
         ];
 
-        let some_leaf = Node::new(NodeType::Leaf(Offset(0), key_values.clone()), true, None);
+        let some_leaf = Node::new(NodeType::Leaf(key_values.clone()), true, None);
 
         // Serialize data.
         let page = Page::try_from(&some_leaf)?;
@@ -225,7 +220,7 @@ mod tests {
         let res = Node::try_from(page)?;
 
         let pairs = match res.node_type {
-            NodeType::Leaf(_, vec) => vec,
+            NodeType::Leaf(vec) => vec,
             _ => panic!("expected leaf node"),
         };
 

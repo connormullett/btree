@@ -51,7 +51,7 @@ impl Node {
                     ),
                 ))
             }
-            NodeType::Leaf(ref mut data_offset, ref mut pairs) => {
+            NodeType::Leaf(ref mut pairs) => {
                 // Populate siblings pairs.
                 let sibling_pairs = pairs.split_off(b);
                 // Pop median key.
@@ -60,7 +60,7 @@ impl Node {
                 Ok((
                     Key(median_pair.key),
                     Node::new(
-                        NodeType::Leaf(data_offset.clone(), sibling_pairs),
+                        NodeType::Leaf(sibling_pairs),
                         false,
                         self.parent_offset.clone(),
                     ),
@@ -114,7 +114,7 @@ impl TryFrom<Page> for Node {
                 ))
             }
 
-            NodeType::Leaf(_, mut pairs) => {
+            NodeType::Leaf(mut pairs) => {
                 // data page offset
                 let mut offset = LEAF_NODE_DATA_PAGE_OFFSET;
                 let data_offset = page.get_value_from_offset(offset)?;
@@ -142,11 +142,7 @@ impl TryFrom<Page> for Node {
                         Offset(value_offset),
                     ))
                 }
-                Ok(Node::new(
-                    NodeType::Leaf(Offset(data_offset), pairs),
-                    is_root,
-                    parent_offset,
-                ))
+                Ok(Node::new(NodeType::Leaf(pairs), is_root, parent_offset))
             }
 
             NodeType::Unexpected => Err(Error::UnexpectedError),
@@ -245,14 +241,11 @@ mod tests {
         use crate::node::Node;
         use crate::node_type::KeyValuePair;
         let mut node = Node::new(
-            NodeType::Leaf(
-                Offset(0),
-                vec![
-                    KeyValuePair::new("foo".to_string(), Offset(0)),
-                    KeyValuePair::new("lebron".to_string(), Offset(20)),
-                    KeyValuePair::new("ariana".to_string(), Offset(40)),
-                ],
-            ),
+            NodeType::Leaf(vec![
+                KeyValuePair::new("foo".to_string(), Offset(0)),
+                KeyValuePair::new("lebron".to_string(), Offset(20)),
+                KeyValuePair::new("ariana".to_string(), Offset(40)),
+            ]),
             true,
             None,
         );
@@ -261,23 +254,20 @@ mod tests {
         assert_eq!(median, Key("lebron".to_string()));
         assert_eq!(
             node.node_type,
-            NodeType::Leaf(
-                Offset(0),
-                vec![
-                    KeyValuePair {
-                        key: "foo".to_string(),
-                        offset: Offset(0)
-                    },
-                    KeyValuePair {
-                        key: "lebron".to_string(),
-                        offset: Offset(20)
-                    }
-                ]
-            )
+            NodeType::Leaf(vec![
+                KeyValuePair {
+                    key: "foo".to_string(),
+                    offset: Offset(0)
+                },
+                KeyValuePair {
+                    key: "lebron".to_string(),
+                    offset: Offset(20)
+                }
+            ])
         );
 
         let sibling_key_values = match sibling.node_type {
-            NodeType::Leaf(_, key_values) => key_values,
+            NodeType::Leaf(key_values) => key_values,
             _ => panic!("expected leaf node"),
         };
 

@@ -1,15 +1,11 @@
-use crate::data_page::{self, DataPage};
-use crate::data_pager::DataPager;
 use crate::error::Error;
 use crate::node::Node;
 use crate::node_type::{Key, KeyValuePair, NodeType, Offset};
 use crate::page::Page;
-use crate::page_layout::{PAGE_SIZE, PTR_SIZE};
 use crate::pager::Pager;
 use crate::wal::Wal;
 use std::cmp;
 use std::convert::TryFrom;
-use std::io::{BufRead, BufReader, Cursor, Seek, SeekFrom};
 use std::path::Path;
 
 /// B+Tree properties.
@@ -20,7 +16,6 @@ pub const NODE_KEYS_LIMIT: usize = MAX_BRANCHING_FACTOR - 1;
 /// Each node is persisted in the table file, the leaf nodes contain the values.
 pub struct BTree {
     pager: Pager,
-    data_pager: DataPager,
     b: usize,
     wal: Wal,
 }
@@ -69,10 +64,8 @@ impl BTreeBuilder {
         }
 
         let mut pager = Pager::new(self.path)?;
-        let mut data_pager = DataPager::new(self.data_path)?;
-        data_pager.write_page(DataPage::new([0u8; PAGE_SIZE]))?;
 
-        let root = Node::new(NodeType::Leaf(Offset(0), vec![]), true, None);
+        let root = Node::new(NodeType::Leaf(vec![]), true, None);
         let root_offset = pager.write_page(Page::try_from(&root)?)?;
 
         let parent_directory = self.path.parent().unwrap_or_else(|| Path::new("/tmp"));
@@ -81,7 +74,6 @@ impl BTreeBuilder {
 
         Ok(BTree {
             pager,
-            data_pager,
             b: self.b,
             wal,
         })
@@ -102,7 +94,7 @@ impl Default for BTreeBuilder {
 impl BTree {
     fn is_node_full(&self, node: &Node) -> Result<bool, Error> {
         match &node.node_type {
-            NodeType::Leaf(_, pairs) => Ok(pairs.len() == (2 * self.b - 1)),
+            NodeType::Leaf(pairs) => Ok(pairs.len() == (2 * self.b - 1)),
             NodeType::Internal(_, keys) => Ok(keys.len() == (2 * self.b - 1)),
             NodeType::Unexpected => Err(Error::UnexpectedError),
         }
@@ -111,7 +103,7 @@ impl BTree {
     fn is_node_underflow(&self, node: &Node) -> Result<bool, Error> {
         match &node.node_type {
             // A root cannot really be "underflowing" as it can contain less than b-1 keys / pointers.
-            NodeType::Leaf(_, pairs) => Ok(pairs.len() < self.b - 1 && !node.is_root),
+            NodeType::Leaf(pairs) => Ok(pairs.len() < self.b - 1 && !node.is_root),
             NodeType::Internal(_, keys) => Ok(keys.len() < self.b - 1 && !node.is_root),
             NodeType::Unexpected => Err(Error::UnexpectedError),
         }
@@ -134,10 +126,8 @@ impl BTree {
             root.is_root = false;
             // split the old root.
             let (median, sibling) = root.split(self.b)?;
-            if let NodeType::Leaf(_, _) = sibling.node_type {
+            if let NodeType::Leaf(_) = sibling.node_type {
                 // create a new data page if a node was split
-                self.data_pager
-                    .write_page(DataPage::new([0u8; PAGE_SIZE]))?;
             };
             // write the old root with its new data to disk in a *new* location.
             let old_root_offset = self.pager.write_page(Page::try_from(&root)?)?;
@@ -170,36 +160,12 @@ impl BTree {
         value: String,
     ) -> Result<(), Error> {
         match &mut node.node_type {
-            NodeType::Leaf(ref mut data_offset, ref mut pairs) => {
-                dbg!(key.clone());
-                // find the end of the page
-                let mut page = self.data_pager.get_page(&data_offset)?;
-                let page_data = page.get_data();
-                let mut reader = BufReader::new(&page_data[..]);
-                let mut buf = vec![];
-                let offset = reader.read_until(0x00, &mut buf)?;
-
-                // set the offset to the data page offset + offset within the page
-                let page_offset = data_offset.0 + offset as usize;
-
-                let kv = KeyValuePair {
-                    key,
-                    offset: Offset(page_offset),
-                };
-
+            NodeType::Leaf(ref mut pairs) => {
+                let kv = todo!();
                 // find where the key should be inserted and upsert
                 let idx = pairs.binary_search(&kv).unwrap_or_else(|x| x);
                 pairs.insert(idx, kv);
 
-                // write to pages
-                page.write_value_at_offset(offset, value.bytes().len())?;
-                page.write_bytes_at_offset(
-                    value.as_bytes(),
-                    offset + PTR_SIZE,
-                    value.bytes().len(),
-                )?;
-
-                self.data_pager.write_page_at_offset(page, &data_offset)?;
                 self.pager
                     .write_page_at_offset(Page::try_from(&*node)?, &node_offset)
             }
@@ -267,18 +233,12 @@ impl BTree {
                 let child_node = Node::try_from(page)?;
                 self.search_node(child_node, search)
             }
-            NodeType::Leaf(data_offset, pairs) => {
+            NodeType::Leaf(pairs) => {
                 if let Ok(idx) =
                     pairs.binary_search_by_key(&search.to_string(), |pair| pair.key.clone())
                 {
                     let value = pairs.get(idx).ok_or(Error::KeyNotFound)?;
-                    let page_offset = data_offset.0 + value.offset.0;
-                    let page = self.data_pager.get_page(&data_offset)?;
-                    let len_value = page.get_value_from_offset(page_offset)?;
-                    let value = page.get_at_offset(page_offset + 1, len_value);
-                    let decoded_value =
-                        std::str::from_utf8(value).or(Err(Error::UnexpectedError))?;
-                    return Ok(decoded_value.to_string());
+                    todo!();
                 }
                 Err(Error::KeyNotFound)
             }
@@ -308,7 +268,7 @@ impl BTree {
         node_offset: &Offset,
     ) -> Result<(), Error> {
         match &mut node.node_type {
-            NodeType::Leaf(_, ref mut pairs) => {
+            NodeType::Leaf(ref mut pairs) => {
                 let key_idx = pairs
                     .binary_search_by_key(&key, |kv| Key(kv.key.clone()))
                     .map_err(|_| Error::KeyNotFound)?;
@@ -407,13 +367,13 @@ impl BTree {
     // i.e. |first.keys| + |second.keys| <= [2*(b-1) for keys or 2*b for offsets].
     fn merge(&self, first: Node, second: Node) -> Result<Node, Error> {
         match first.node_type {
-            NodeType::Leaf(offset, first_pairs) => {
-                if let NodeType::Leaf(_, second_pairs) = second.node_type {
+            NodeType::Leaf(first_pairs) => {
+                if let NodeType::Leaf(second_pairs) = second.node_type {
                     let merged_pairs: Vec<KeyValuePair> = first_pairs
                         .into_iter()
                         .chain(second_pairs.into_iter())
                         .collect();
-                    let node_type = NodeType::Leaf(offset, merged_pairs);
+                    let node_type = NodeType::Leaf(merged_pairs);
                     Ok(Node::new(node_type, first.is_root, first.parent_offset))
                 } else {
                     Err(Error::UnexpectedError)
@@ -455,11 +415,8 @@ impl BTree {
                 }
                 Ok(())
             }
-            NodeType::Leaf(data_offset, pairs) => {
-                println!(
-                    "{}DataOffset: {} Key value pairs: {:?}",
-                    curr_prefix, data_offset.0, pairs
-                );
+            NodeType::Leaf(pairs) => {
+                println!("{}DataOffset: Key value pairs: {:?}", curr_prefix, pairs);
                 Ok(())
             }
             NodeType::Unexpected => Err(Error::UnexpectedError),
