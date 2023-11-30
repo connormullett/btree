@@ -1,11 +1,12 @@
+use crate::data_page::DataPage;
 use crate::error::Error;
 use crate::node::Node;
 use crate::node_type::{Key, NodeType, Offset};
 use crate::page_layout::{
-    ToByte, INTERNAL_NODE_HEADER_SIZE, INTERNAL_NODE_NUM_CHILDREN_OFFSET,
-    INTERNAL_NODE_NUM_CHILDREN_SIZE, IS_ROOT_OFFSET, KEY_SIZE, LEAF_NODE_HEADER_SIZE,
-    LEAF_NODE_NUM_PAIRS_OFFSET, LEAF_NODE_NUM_PAIRS_SIZE, NODE_TYPE_OFFSET, PAGE_SIZE,
-    PARENT_POINTER_OFFSET, PARENT_POINTER_SIZE, PTR_SIZE, VALUE_SIZE,
+    ToByte, DATA_PAGE_NUM_VALUES_OFFSET, INTERNAL_NODE_HEADER_SIZE,
+    INTERNAL_NODE_NUM_CHILDREN_OFFSET, INTERNAL_NODE_NUM_CHILDREN_SIZE, IS_ROOT_OFFSET, KEY_SIZE,
+    LEAF_NODE_HEADER_SIZE, LEAF_NODE_NUM_PAIRS_OFFSET, LEAF_NODE_NUM_PAIRS_SIZE, NODE_TYPE_OFFSET,
+    PAGE_SIZE, PARENT_POINTER_OFFSET, PARENT_POINTER_SIZE, PTR_SIZE, VALUE_SIZE,
 };
 use std::convert::TryFrom;
 
@@ -195,9 +196,38 @@ impl TryFrom<&[u8]> for Value {
     }
 }
 
+impl TryFrom<&DataPage> for Page {
+    type Error = Error;
+
+    fn try_from(page: &DataPage) -> Result<Self, Self::Error> {
+        let mut data: [u8; PAGE_SIZE] = [0x00; PAGE_SIZE];
+
+        data[DATA_PAGE_NUM_VALUES_OFFSET] =
+            u8::try_from(page.values.len()).map_err(|_| Error::UnexpectedError)?;
+        let mut offset = 1;
+        for value in page.values.iter() {
+            let len = u8::try_from(value.len())
+                .map_err(|_| Error::ValueOverflowError)?
+                .to_be();
+            data[offset] = len;
+            offset += 1;
+            data[offset..offset + len as usize].clone_from_slice(value.as_bytes());
+            offset += len as usize;
+        }
+
+        Ok(Self {
+            data: Box::new(data),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{error::Error, node_type::Offset};
+    use std::convert::TryFrom;
+
+    use crate::{data_page::DataPage, error::Error, node_type::Offset};
+
+    use super::Page;
 
     #[test]
     fn node_to_page_works_for_leaf_node() -> Result<(), Error> {
@@ -264,6 +294,20 @@ mod tests {
         assert_eq!(res.is_root, internal_node.is_root);
         assert_eq!(res.node_type, internal_node.node_type);
         assert_eq!(res.parent_offset, internal_node.parent_offset);
+        Ok(())
+    }
+
+    #[test]
+    fn data_page_to_page_works() -> Result<(), Error> {
+        let mut data_page = DataPage::new();
+        data_page.values.push("foo".into());
+        data_page.values.push("bar".into());
+        data_page.values.push("baz".into());
+
+        let page = Page::try_from(&data_page)?;
+        let res = DataPage::try_from(page)?;
+
+        assert_eq!(data_page.values, res.values);
         Ok(())
     }
 }

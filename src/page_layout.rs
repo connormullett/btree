@@ -25,6 +25,9 @@ pub const LEAF_NODE_NUM_PAIRS_SIZE: usize = PTR_SIZE;
 pub const LEAF_NODE_HEADER_SIZE: usize =
     COMMON_NODE_HEADER_SIZE + LEAF_NODE_DATA_PAGE_OFFSET_SIZE + LEAF_NODE_NUM_PAIRS_SIZE;
 
+/// Data page layout
+pub const DATA_PAGE_NUM_VALUES_OFFSET: usize = 0;
+
 /// Internal header layout (Eighteen bytes in total)
 ///
 // Space for children and keys: PAGE_SIZE - INTERNAL_NODE_HEADER_SIZE = 4096 - 18 = 4078 bytes.
