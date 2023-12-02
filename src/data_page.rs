@@ -16,9 +16,20 @@ impl DataPage {
         self.values.get(idx).cloned()
     }
 
-    pub fn _split(&self) -> Self {
-        // try a sync strategy with leaf node
-        todo!()
+    pub fn insert(&mut self, value: String, index: usize) {
+        self.values.insert(index, value);
+    }
+
+    pub fn split(&mut self, b: usize) -> (Self, Self) {
+        let sibling_values = self.values.split_off(b);
+        (
+            Self {
+                values: self.values.clone(),
+            },
+            Self {
+                values: sibling_values,
+            },
+        )
     }
 }
 

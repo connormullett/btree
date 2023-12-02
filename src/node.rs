@@ -1,5 +1,6 @@
 use byteorder::{BigEndian, ReadBytesExt};
 
+use crate::data_page::DataPage;
 use crate::error::Error;
 use crate::node_type::{Key, KeyValuePair, NodeType, Offset};
 use crate::page::Page;
@@ -34,8 +35,8 @@ impl Node {
     /// split creates a sibling node from a given node by splitting the node in two around a median.
     /// split will split the child at b leaving the [0, b-1] keys
     /// while moving the set of [b, 2b-1] keys to the sibling.
-    pub fn split(&mut self, b: usize) -> Result<(Key, Node), Error> {
-        match self.node_type {
+    pub fn split(&mut self, b: usize, pager: &mut Pager) -> Result<(Key, Node), Error> {
+        match &mut self.node_type {
             NodeType::Internal(ref mut children, ref mut keys) => {
                 // Populate siblings keys.
                 let mut sibling_keys = keys.split_off(b - 1);
@@ -52,14 +53,32 @@ impl Node {
                     ),
                 ))
             }
-            NodeType::Leaf(_, ref mut pairs) => {
+            NodeType::Leaf(offset, ref mut pairs) => {
                 // Populate siblings pairs.
-                let sibling_pairs = pairs.split_off(b);
+                let mut sibling_pairs = pairs.split_off(b);
                 // Pop median key.
                 let median_pair = pairs.get(b - 1).ok_or(Error::UnexpectedError)?.clone();
                 // get data page as node
+                let page = pager.get_page(&offset)?;
+                let mut data_page = DataPage::try_from(page)?;
                 // split data page and reset values for sibling
-                let sibling_offset = todo!();
+                let (left, right) = data_page.split(b);
+                pager.write_page_at_offset(Page::try_from(&left)?, &offset)?;
+                let sibling_offset = pager.write_page(Page::try_from(&right)?)?;
+                dbg!(offset.clone());
+
+                // find minumum index
+                let mut idx = usize::MAX;
+                for pair in sibling_pairs.iter() {
+                    if pair.idx <= idx {
+                        idx = pair.idx;
+                    }
+                }
+
+                // subtract minimum from indexes in sibling values
+                for pair in sibling_pairs.iter_mut() {
+                    pair.idx -= idx;
+                }
 
                 Ok((
                     Key(median_pair.key),
@@ -166,6 +185,7 @@ impl TryFrom<Page> for Node {
 
 #[cfg(test)]
 mod tests {
+    use crate::data_page::DataPage;
     use crate::error::Error;
     use crate::node::{
         Node, Page, INTERNAL_NODE_HEADER_SIZE, KEY_SIZE, LEAF_NODE_HEADER_SIZE, PTR_SIZE,
@@ -173,7 +193,9 @@ mod tests {
     };
     use crate::node_type::{Key, NodeType, Offset};
     use crate::page_layout::PAGE_SIZE;
+    use crate::pager::Pager;
     use std::convert::TryFrom;
+    use std::path::Path;
 
     #[test]
     fn page_to_node_works_for_leaf_node() -> Result<(), Error> {
@@ -254,25 +276,34 @@ mod tests {
     fn split_leaf_works() -> Result<(), Error> {
         use crate::node::Node;
         use crate::node_type::KeyValuePair;
+        let mut pager = Pager::new(&Path::new("/tmp/pager"))?;
+        let mut data_page = DataPage::new();
+        data_page.insert("bar".to_string(), 0);
+        data_page.insert("foo".to_string(), 1);
+        data_page.insert("zap".to_string(), 2);
+        pager.write_page(Page::try_from(&data_page)?)?;
+
         let mut node = Node::new(
             NodeType::Leaf(
-                Offset(4096),
+                Offset(0),
                 vec![
                     KeyValuePair::new("foo".to_string(), 0),
-                    KeyValuePair::new("lebron".to_string(), 20),
-                    KeyValuePair::new("ariana".to_string(), 40),
+                    KeyValuePair::new("lebron".to_string(), 1),
+                    KeyValuePair::new("ariana".to_string(), 2),
                 ],
             ),
             true,
             None,
         );
+        let offset = pager.write_page(Page::try_from(&node)?)?;
+        assert_eq!(offset, Offset(4096));
 
-        let (median, sibling) = node.split(2)?;
+        let (median, sibling) = node.split(2, &mut pager)?;
         assert_eq!(median, Key("lebron".to_string()));
         assert_eq!(
             node.node_type,
             NodeType::Leaf(
-                Offset(4096),
+                Offset(0),
                 vec![
                     KeyValuePair {
                         key: "foo".to_string(),
@@ -280,7 +311,7 @@ mod tests {
                     },
                     KeyValuePair {
                         key: "lebron".to_string(),
-                        idx: 20
+                        idx: 1
                     }
                 ]
             )
@@ -295,7 +326,7 @@ mod tests {
             sibling_key_values,
             vec![KeyValuePair {
                 key: "ariana".to_string(),
-                idx: 40
+                idx: 0
             }]
         );
         Ok(())
@@ -307,6 +338,7 @@ mod tests {
         use crate::node_type::NodeType;
         use crate::node_type::{Key, Offset};
         use crate::page_layout::PAGE_SIZE;
+        let mut pager = Pager::new(&Path::new("/tmp/pager")).unwrap();
         let mut node = Node::new(
             NodeType::Internal(
                 vec![
@@ -325,7 +357,7 @@ mod tests {
             None,
         );
 
-        let (median, sibling) = node.split(2)?;
+        let (median, sibling) = node.split(2, &mut pager)?;
         assert_eq!(median, Key("lebron".to_string()));
         assert_eq!(
             node.node_type,

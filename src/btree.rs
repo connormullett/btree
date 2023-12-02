@@ -1,4 +1,4 @@
-use crate::data_page::DataPage;
+use crate::data_page::{self, DataPage};
 use crate::error::Error;
 use crate::node::Node;
 use crate::node_type::{Key, KeyValuePair, NodeType, Offset};
@@ -129,10 +129,8 @@ impl BTree {
             root.parent_offset = Some(new_root_offset.clone());
             root.is_root = false;
             // split the old root.
-            let (median, sibling) = root.split(self.b)?;
-            if let NodeType::Leaf(_, _) = sibling.node_type {
-                // create a new data page if a node was split
-            };
+            let (median, sibling) = root.split(self.b, &mut self.pager)?;
+
             // write the old root with its new data to disk in a *new* location.
             let old_root_offset = self.pager.write_page(Page::try_from(&root)?)?;
             // write the newly created sibling to disk.
@@ -165,11 +163,17 @@ impl BTree {
     ) -> Result<(), Error> {
         match &mut node.node_type {
             NodeType::Leaf(data_offset, ref mut pairs) => {
-                let kv = todo!();
-                // find where the key should be inserted and upsert
+                let mut kv = KeyValuePair { key, idx: 0 };
                 let idx = pairs.binary_search(&kv).unwrap_or_else(|x| x);
+                kv.idx = idx;
+                let page = self.pager.get_page(&data_offset)?;
+                let mut data_page = DataPage::try_from(page)?;
+                data_page.insert(value, idx);
+
                 pairs.insert(idx, kv);
 
+                self.pager
+                    .write_page_at_offset(Page::try_from(&data_page)?, &data_offset)?;
                 self.pager
                     .write_page_at_offset(Page::try_from(&*node)?, &node_offset)
             }
@@ -186,7 +190,7 @@ impl BTree {
                 if self.is_node_full(&child)? {
                     // split will split the child at b leaving the [0, b-1] keys
                     // while moving the set of [b, 2b-1] keys to the sibling.
-                    let (median, mut sibling) = child.split(self.b)?;
+                    let (median, mut sibling) = child.split(self.b, &mut self.pager)?;
                     self.pager
                         .write_page_at_offset(Page::try_from(&child)?, &new_child_offset)?;
                     // Write the newly created sibling to disk.
@@ -425,7 +429,7 @@ impl BTree {
             }
             NodeType::Leaf(data_offset, pairs) => {
                 println!(
-                    "{}DataOffset: {} Key value pairs: {:?}",
+                    "{}DataOffset: {}, Key value pairs: {:?}",
                     curr_prefix, data_offset.0, pairs
                 );
                 Ok(())
@@ -487,6 +491,7 @@ mod tests {
         btree.insert("g".to_string(), "Konnichiwa".to_string())?;
         btree.insert("h".to_string(), "Ni hao".to_string())?;
         btree.insert("i".to_string(), "Ciao".to_string())?;
+        btree.print().unwrap();
 
         let mut v = btree.search("a".to_string())?;
         assert_eq!(v, "shalom");
