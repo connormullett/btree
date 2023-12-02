@@ -12,6 +12,10 @@ impl DataPage {
         Self::default()
     }
 
+    pub fn get(&self, idx: usize) -> Option<String> {
+        self.values.get(idx).cloned()
+    }
+
     pub fn _split(&self) -> Self {
         // try a sync strategy with leaf node
         todo!()

@@ -137,7 +137,9 @@ impl TryFrom<&Node> for Page {
                     page_offset += KEY_SIZE
                 }
             }
-            NodeType::Leaf(kv_pairs) => {
+            NodeType::Leaf(_, kv_pairs) => {
+                // data page offset
+
                 // num of pairs
                 data[LEAF_NODE_NUM_PAIRS_OFFSET
                     ..LEAF_NODE_NUM_PAIRS_OFFSET + LEAF_NODE_NUM_PAIRS_SIZE]
@@ -157,7 +159,7 @@ impl TryFrom<&Node> for Page {
                     data[page_offset..page_offset + KEY_SIZE].clone_from_slice(&raw_key);
                     page_offset += KEY_SIZE;
 
-                    let value_bytes = pair.offset.as_bytes();
+                    let value_bytes = pair.idx.to_be_bytes();
                     let mut raw_value: [u8; VALUE_SIZE] = [0x00; VALUE_SIZE];
                     if value_bytes.len() > VALUE_SIZE {
                         return Err(Error::ValueOverflowError);
@@ -237,12 +239,12 @@ mod tests {
         use std::convert::TryFrom;
 
         let key_values = vec![
-            KeyValuePair::new("foo".to_string(), Offset(0)),
-            KeyValuePair::new("lebron".to_string(), Offset(20)),
-            KeyValuePair::new("ariana".to_string(), Offset(40)),
+            KeyValuePair::new("foo".to_string(), 0),
+            KeyValuePair::new("lebron".to_string(), 20),
+            KeyValuePair::new("ariana".to_string(), 40),
         ];
 
-        let some_leaf = Node::new(NodeType::Leaf(key_values.clone()), true, None);
+        let some_leaf = Node::new(NodeType::Leaf(Offset(0), key_values.clone()), true, None);
 
         // Serialize data.
         let page = Page::try_from(&some_leaf)?;
@@ -250,7 +252,7 @@ mod tests {
         let res = Node::try_from(page)?;
 
         let pairs = match res.node_type {
-            NodeType::Leaf(vec) => vec,
+            NodeType::Leaf(_, vec) => vec,
             _ => panic!("expected leaf node"),
         };
 

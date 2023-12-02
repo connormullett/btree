@@ -8,6 +8,7 @@ use crate::page_layout::{
     KEY_SIZE, LEAF_NODE_DATA_PAGE_OFFSET, LEAF_NODE_DATA_PAGE_OFFSET_SIZE, LEAF_NODE_HEADER_SIZE,
     NODE_TYPE_OFFSET, PARENT_POINTER_OFFSET, PTR_SIZE, VALUE_SIZE,
 };
+use crate::pager::Pager;
 use std::convert::TryFrom;
 use std::mem::size_of;
 use std::str;
@@ -51,16 +52,19 @@ impl Node {
                     ),
                 ))
             }
-            NodeType::Leaf(ref mut pairs) => {
+            NodeType::Leaf(_, ref mut pairs) => {
                 // Populate siblings pairs.
                 let sibling_pairs = pairs.split_off(b);
                 // Pop median key.
                 let median_pair = pairs.get(b - 1).ok_or(Error::UnexpectedError)?.clone();
+                // get data page as node
+                // split data page and reset values for sibling
+                let sibling_offset = todo!();
 
                 Ok((
                     Key(median_pair.key),
                     Node::new(
-                        NodeType::Leaf(sibling_pairs),
+                        NodeType::Leaf(sibling_offset, sibling_pairs),
                         false,
                         self.parent_offset.clone(),
                     ),
@@ -114,10 +118,10 @@ impl TryFrom<Page> for Node {
                 ))
             }
 
-            NodeType::Leaf(mut pairs) => {
+            NodeType::Leaf(_, mut pairs) => {
                 // data page offset
                 let mut offset = LEAF_NODE_DATA_PAGE_OFFSET;
-                let data_offset = page.get_value_from_offset(offset)?;
+                let data_offset = Offset(page.get_value_from_offset(offset)?);
 
                 offset += LEAF_NODE_DATA_PAGE_OFFSET_SIZE;
                 // key value pairs
@@ -139,10 +143,14 @@ impl TryFrom<Page> for Node {
                     // Trim leading or trailing zeros.
                     pairs.push(KeyValuePair::new(
                         key.trim_matches(char::from(0)).to_string(),
-                        Offset(value_offset),
+                        value_offset,
                     ))
                 }
-                Ok(Node::new(NodeType::Leaf(pairs), is_root, parent_offset))
+                Ok(Node::new(
+                    NodeType::Leaf(data_offset, pairs),
+                    is_root,
+                    parent_offset,
+                ))
             }
 
             NodeType::Unexpected => Err(Error::UnexpectedError),
@@ -177,7 +185,9 @@ mod tests {
             0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // DataPage offset.
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // Number of Key-Value pairs.
             0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, // "hello"
-            0x77, 0x6f, 0x72, 0x6c, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, // "world"
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x77, 0x6f, 0x72, 0x6c, 0x64, 0x00, 0x00, 0x00, // "world"
         ];
         let junk: [u8; PAGE_SIZE - DATA_LEN] = [0x00; PAGE_SIZE - DATA_LEN];
         let mut page = [0x00; PAGE_SIZE];
@@ -204,7 +214,11 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, // 8192  (3rd Page)
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00, // 12288 (4th Page)
             0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, // "hello"
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
             0x77, 0x6f, 0x72, 0x6c, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, // "world"
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, //
         ];
         let junk: [u8; PAGE_SIZE - DATA_LEN] = [0x00; PAGE_SIZE - DATA_LEN];
 
@@ -241,11 +255,14 @@ mod tests {
         use crate::node::Node;
         use crate::node_type::KeyValuePair;
         let mut node = Node::new(
-            NodeType::Leaf(vec![
-                KeyValuePair::new("foo".to_string(), Offset(0)),
-                KeyValuePair::new("lebron".to_string(), Offset(20)),
-                KeyValuePair::new("ariana".to_string(), Offset(40)),
-            ]),
+            NodeType::Leaf(
+                Offset(4096),
+                vec![
+                    KeyValuePair::new("foo".to_string(), 0),
+                    KeyValuePair::new("lebron".to_string(), 20),
+                    KeyValuePair::new("ariana".to_string(), 40),
+                ],
+            ),
             true,
             None,
         );
@@ -254,20 +271,23 @@ mod tests {
         assert_eq!(median, Key("lebron".to_string()));
         assert_eq!(
             node.node_type,
-            NodeType::Leaf(vec![
-                KeyValuePair {
-                    key: "foo".to_string(),
-                    offset: Offset(0)
-                },
-                KeyValuePair {
-                    key: "lebron".to_string(),
-                    offset: Offset(20)
-                }
-            ])
+            NodeType::Leaf(
+                Offset(4096),
+                vec![
+                    KeyValuePair {
+                        key: "foo".to_string(),
+                        idx: 0
+                    },
+                    KeyValuePair {
+                        key: "lebron".to_string(),
+                        idx: 20
+                    }
+                ]
+            )
         );
 
         let sibling_key_values = match sibling.node_type {
-            NodeType::Leaf(key_values) => key_values,
+            NodeType::Leaf(_, key_values) => key_values,
             _ => panic!("expected leaf node"),
         };
 
@@ -275,7 +295,7 @@ mod tests {
             sibling_key_values,
             vec![KeyValuePair {
                 key: "ariana".to_string(),
-                offset: Offset(40)
+                idx: 40
             }]
         );
         Ok(())

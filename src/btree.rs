@@ -1,3 +1,4 @@
+use crate::data_page::DataPage;
 use crate::error::Error;
 use crate::node::Node;
 use crate::node_type::{Key, KeyValuePair, NodeType, Offset};
@@ -65,7 +66,10 @@ impl BTreeBuilder {
 
         let mut pager = Pager::new(self.path)?;
 
-        let root = Node::new(NodeType::Leaf(vec![]), true, None);
+        let data_page = DataPage::new();
+        let root_page_offset = pager.write_page(Page::try_from(&data_page)?)?;
+
+        let root = Node::new(NodeType::Leaf(root_page_offset, vec![]), true, None);
         let root_offset = pager.write_page(Page::try_from(&root)?)?;
 
         let parent_directory = self.path.parent().unwrap_or_else(|| Path::new("/tmp"));
@@ -94,7 +98,7 @@ impl Default for BTreeBuilder {
 impl BTree {
     fn is_node_full(&self, node: &Node) -> Result<bool, Error> {
         match &node.node_type {
-            NodeType::Leaf(pairs) => Ok(pairs.len() == (2 * self.b - 1)),
+            NodeType::Leaf(_, pairs) => Ok(pairs.len() == (2 * self.b - 1)),
             NodeType::Internal(_, keys) => Ok(keys.len() == (2 * self.b - 1)),
             NodeType::Unexpected => Err(Error::UnexpectedError),
         }
@@ -103,7 +107,7 @@ impl BTree {
     fn is_node_underflow(&self, node: &Node) -> Result<bool, Error> {
         match &node.node_type {
             // A root cannot really be "underflowing" as it can contain less than b-1 keys / pointers.
-            NodeType::Leaf(pairs) => Ok(pairs.len() < self.b - 1 && !node.is_root),
+            NodeType::Leaf(_, pairs) => Ok(pairs.len() < self.b - 1 && !node.is_root),
             NodeType::Internal(_, keys) => Ok(keys.len() < self.b - 1 && !node.is_root),
             NodeType::Unexpected => Err(Error::UnexpectedError),
         }
@@ -126,7 +130,7 @@ impl BTree {
             root.is_root = false;
             // split the old root.
             let (median, sibling) = root.split(self.b)?;
-            if let NodeType::Leaf(_) = sibling.node_type {
+            if let NodeType::Leaf(_, _) = sibling.node_type {
                 // create a new data page if a node was split
             };
             // write the old root with its new data to disk in a *new* location.
@@ -160,7 +164,7 @@ impl BTree {
         value: String,
     ) -> Result<(), Error> {
         match &mut node.node_type {
-            NodeType::Leaf(ref mut pairs) => {
+            NodeType::Leaf(data_offset, ref mut pairs) => {
                 let kv = todo!();
                 // find where the key should be inserted and upsert
                 let idx = pairs.binary_search(&kv).unwrap_or_else(|x| x);
@@ -233,12 +237,15 @@ impl BTree {
                 let child_node = Node::try_from(page)?;
                 self.search_node(child_node, search)
             }
-            NodeType::Leaf(pairs) => {
+            NodeType::Leaf(offset, pairs) => {
                 if let Ok(idx) =
                     pairs.binary_search_by_key(&search.to_string(), |pair| pair.key.clone())
                 {
                     let value = pairs.get(idx).ok_or(Error::KeyNotFound)?;
-                    todo!();
+                    let page = self.pager.get_page(&offset)?;
+                    let data_page = DataPage::try_from(page)?;
+                    let value = data_page.get(value.idx).ok_or(Error::UnexpectedError)?;
+                    return Ok(value);
                 }
                 Err(Error::KeyNotFound)
             }
@@ -268,7 +275,7 @@ impl BTree {
         node_offset: &Offset,
     ) -> Result<(), Error> {
         match &mut node.node_type {
-            NodeType::Leaf(ref mut pairs) => {
+            NodeType::Leaf(data_offset, ref mut pairs) => {
                 let key_idx = pairs
                     .binary_search_by_key(&key, |kv| Key(kv.key.clone()))
                     .map_err(|_| Error::KeyNotFound)?;
@@ -367,13 +374,14 @@ impl BTree {
     // i.e. |first.keys| + |second.keys| <= [2*(b-1) for keys or 2*b for offsets].
     fn merge(&self, first: Node, second: Node) -> Result<Node, Error> {
         match first.node_type {
-            NodeType::Leaf(first_pairs) => {
-                if let NodeType::Leaf(second_pairs) = second.node_type {
+            NodeType::Leaf(first_offset, first_pairs) => {
+                if let NodeType::Leaf(second_offset, second_pairs) = second.node_type {
                     let merged_pairs: Vec<KeyValuePair> = first_pairs
                         .into_iter()
                         .chain(second_pairs.into_iter())
                         .collect();
-                    let node_type = NodeType::Leaf(merged_pairs);
+                    let new_offset = todo!();
+                    let node_type = NodeType::Leaf(new_offset, merged_pairs);
                     Ok(Node::new(node_type, first.is_root, first.parent_offset))
                 } else {
                     Err(Error::UnexpectedError)
@@ -415,8 +423,11 @@ impl BTree {
                 }
                 Ok(())
             }
-            NodeType::Leaf(pairs) => {
-                println!("{}DataOffset: Key value pairs: {:?}", curr_prefix, pairs);
+            NodeType::Leaf(data_offset, pairs) => {
+                println!(
+                    "{}DataOffset: {} Key value pairs: {:?}",
+                    curr_prefix, data_offset.0, pairs
+                );
                 Ok(())
             }
             NodeType::Unexpected => Err(Error::UnexpectedError),
