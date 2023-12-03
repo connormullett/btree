@@ -16,8 +16,9 @@ impl DataPage {
         self.values.get(idx).cloned()
     }
 
-    pub fn insert(&mut self, value: String, index: usize) {
-        self.values.insert(index, value);
+    pub fn insert(&mut self, value: String) -> usize {
+        self.values.push(value);
+        self.values.len() - 1
     }
 
     pub fn split(&mut self, b: usize) -> (Self, Self) {

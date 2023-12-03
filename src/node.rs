@@ -65,19 +65,18 @@ impl Node {
                 let (left, right) = data_page.split(b);
                 pager.write_page_at_offset(Page::try_from(&left)?, &offset)?;
                 let sibling_offset = pager.write_page(Page::try_from(&right)?)?;
-                dbg!(offset.clone());
 
                 // find minumum index
-                let mut idx = usize::MAX;
+                let mut min = usize::MAX;
                 for pair in sibling_pairs.iter() {
-                    if pair.idx <= idx {
-                        idx = pair.idx;
+                    if pair.idx <= min {
+                        min = pair.idx;
                     }
                 }
 
                 // subtract minimum from indexes in sibling values
                 for pair in sibling_pairs.iter_mut() {
-                    pair.idx -= idx;
+                    pair.idx -= min;
                 }
 
                 Ok((
@@ -278,9 +277,9 @@ mod tests {
         use crate::node_type::KeyValuePair;
         let mut pager = Pager::new(&Path::new("/tmp/pager"))?;
         let mut data_page = DataPage::new();
-        data_page.insert("bar".to_string(), 0);
-        data_page.insert("foo".to_string(), 1);
-        data_page.insert("zap".to_string(), 2);
+        data_page.insert("bar".to_string());
+        data_page.insert("foo".to_string());
+        data_page.insert("zap".to_string());
         pager.write_page(Page::try_from(&data_page)?)?;
 
         let mut node = Node::new(

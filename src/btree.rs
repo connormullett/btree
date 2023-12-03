@@ -25,8 +25,6 @@ pub struct BTree {
 pub struct BTreeBuilder {
     /// Path to the tree file, db index.
     path: &'static Path,
-    /// Path to data store.
-    data_path: &'static Path,
     /// The BTree parameter, an inner node contains no more than 2*b-1 keys and no less than b-1 keys
     /// and no more than 2*b children and no less than b children.
     b: usize,
@@ -36,18 +34,12 @@ impl BTreeBuilder {
     pub fn new() -> BTreeBuilder {
         BTreeBuilder {
             path: Path::new(""),
-            data_path: Path::new(""),
             b: 0,
         }
     }
 
     pub fn path(mut self, path: &'static Path) -> BTreeBuilder {
         self.path = path;
-        self
-    }
-
-    pub fn data_path(mut self, path: &'static Path) -> BTreeBuilder {
-        self.data_path = path;
         self
     }
 
@@ -162,18 +154,21 @@ impl BTree {
         value: String,
     ) -> Result<(), Error> {
         match &mut node.node_type {
-            NodeType::Leaf(data_offset, ref mut pairs) => {
+            NodeType::Leaf(ref mut data_offset, ref mut pairs) => {
                 let mut kv = KeyValuePair { key, idx: 0 };
                 let idx = pairs.binary_search(&kv).unwrap_or_else(|x| x);
-                kv.idx = idx;
                 let page = self.pager.get_page(&data_offset)?;
                 let mut data_page = DataPage::try_from(page)?;
-                data_page.insert(value, idx);
+                println!("data page {:?}", data_page);
+                println!("pairs     {:?}", pairs);
+                println!("kv        {:?}", kv);
+                let data_idx = data_page.insert(value);
+                kv.idx = data_idx;
 
                 pairs.insert(idx, kv);
 
-                self.pager
-                    .write_page_at_offset(Page::try_from(&data_page)?, &data_offset)?;
+                let offset = self.pager.write_page(Page::try_from(&data_page)?)?;
+                *data_offset = offset;
                 self.pager
                     .write_page_at_offset(Page::try_from(&*node)?, &node_offset)
             }
@@ -479,7 +474,6 @@ mod tests {
 
         let mut btree = BTreeBuilder::new()
             .path(Path::new("/tmp/db"))
-            .data_path(Path::new("/tmp/data"))
             .b_parameter(2)
             .build()?;
         btree.insert("a".to_string(), "shalom".to_string())?;
@@ -491,7 +485,7 @@ mod tests {
         btree.insert("g".to_string(), "Konnichiwa".to_string())?;
         btree.insert("h".to_string(), "Ni hao".to_string())?;
         btree.insert("i".to_string(), "Ciao".to_string())?;
-        btree.print().unwrap();
+        btree.print()?;
 
         let mut v = btree.search("a".to_string())?;
         assert_eq!(v, "shalom");
