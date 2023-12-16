@@ -157,11 +157,9 @@ impl BTree {
             NodeType::Leaf(ref mut data_offset, ref mut pairs) => {
                 let mut kv = KeyValuePair { key, idx: 0 };
                 let idx = pairs.binary_search(&kv).unwrap_or_else(|x| x);
+
                 let page = self.pager.get_page(&data_offset)?;
                 let mut data_page = DataPage::try_from(page)?;
-                println!("data page {:?}", data_page);
-                println!("pairs     {:?}", pairs);
-                println!("kv        {:?}", kv);
                 let data_idx = data_page.insert(value);
                 kv.idx = data_idx;
 
@@ -274,11 +272,19 @@ impl BTree {
         node_offset: &Offset,
     ) -> Result<(), Error> {
         match &mut node.node_type {
-            NodeType::Leaf(data_offset, ref mut pairs) => {
+            NodeType::Leaf(ref mut data_offset, ref mut pairs) => {
                 let key_idx = pairs
                     .binary_search_by_key(&key, |kv| Key(kv.key.clone()))
                     .map_err(|_| Error::KeyNotFound)?;
-                // TODO: Remove the key from the data page
+
+                // remove key from data page
+                let page = self.pager.get_page(&data_offset)?;
+                let mut data_page = DataPage::try_from(page)?;
+                data_page.values.remove(key_idx);
+
+                let offset = self.pager.write_page(Page::try_from(&data_page)?)?;
+                *data_offset = offset;
+
                 pairs.remove(key_idx);
                 self.pager
                     .write_page_at_offset(Page::try_from(&*node)?, node_offset)?;
@@ -485,7 +491,6 @@ mod tests {
         btree.insert("g".to_string(), "Konnichiwa".to_string())?;
         btree.insert("h".to_string(), "Ni hao".to_string())?;
         btree.insert("i".to_string(), "Ciao".to_string())?;
-        btree.print()?;
 
         let mut v = btree.search("a".to_string())?;
         assert_eq!(v, "shalom");

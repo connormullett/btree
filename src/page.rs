@@ -5,8 +5,9 @@ use crate::node_type::{Key, NodeType, Offset};
 use crate::page_layout::{
     ToByte, DATA_PAGE_NUM_VALUES_OFFSET, INTERNAL_NODE_HEADER_SIZE,
     INTERNAL_NODE_NUM_CHILDREN_OFFSET, INTERNAL_NODE_NUM_CHILDREN_SIZE, IS_ROOT_OFFSET, KEY_SIZE,
-    LEAF_NODE_HEADER_SIZE, LEAF_NODE_NUM_PAIRS_OFFSET, LEAF_NODE_NUM_PAIRS_SIZE, NODE_TYPE_OFFSET,
-    PAGE_SIZE, PARENT_POINTER_OFFSET, PARENT_POINTER_SIZE, PTR_SIZE, VALUE_SIZE,
+    LEAF_NODE_DATA_PAGE_OFFSET, LEAF_NODE_DATA_PAGE_OFFSET_SIZE, LEAF_NODE_HEADER_SIZE,
+    LEAF_NODE_NUM_PAIRS_OFFSET, LEAF_NODE_NUM_PAIRS_SIZE, NODE_TYPE_OFFSET, PAGE_SIZE,
+    PARENT_POINTER_OFFSET, PARENT_POINTER_SIZE, PTR_SIZE, VALUE_SIZE,
 };
 use std::convert::TryFrom;
 
@@ -137,8 +138,11 @@ impl TryFrom<&Node> for Page {
                     page_offset += KEY_SIZE
                 }
             }
-            NodeType::Leaf(_, kv_pairs) => {
+            NodeType::Leaf(Offset(offset), kv_pairs) => {
                 // data page offset
+                data[LEAF_NODE_DATA_PAGE_OFFSET
+                    ..LEAF_NODE_DATA_PAGE_OFFSET + LEAF_NODE_DATA_PAGE_OFFSET_SIZE]
+                    .clone_from_slice(&offset.to_be_bytes());
 
                 // num of pairs
                 data[LEAF_NODE_NUM_PAIRS_OFFSET
